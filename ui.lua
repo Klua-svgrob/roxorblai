@@ -1,8 +1,9 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.2" }
+local Library = { Version = "1.4.3" }
 
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
@@ -358,6 +359,17 @@ local brandCenter = create("Frame", {
     Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(12, 12), Rotation = 45,
 }, brandMark)
 corner(brandCenter, 4)
+local player = Players.LocalPlayer
+local userId = player and player.UserId or 0
+if userId > 0 then
+    local avatar = create("ImageLabel", {
+        Name = "LocalPlayerAvatar", BackgroundColor3 = COLORS.Hover,
+        Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Crop,
+        Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(userId) .. "&w=150&h=150",
+    }, brandMark)
+    corner(avatar, 10)
+    brandCenter.Visible = false
+end
 local brandTitle = label(sidebar, Window.Title, 23, UDim2.fromOffset(66, 28), UDim2.fromOffset(112, 32), COLORS.Text, BOLD)
 brandTitle.TextTruncate = Enum.TextTruncate.AtEnd
 label(sidebar, tostring(options.Subtitle or "为专注留一点空间"), 10, UDim2.fromOffset(29, 71), UDim2.fromOffset(156, 18), COLORS.Secondary)

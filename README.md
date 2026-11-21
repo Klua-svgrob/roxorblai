@@ -1,8 +1,8 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.2**.
+A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.3**.
 
-The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external images or UI dependencies. Loading the library returns an API; it does not create a demo window.
+The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
 ## Quick start
 
@@ -36,7 +36,7 @@ See [ui.example.lua](ui.example.lua) for a complete example with three tabs, app
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.2"` |
+| `UI.Version` | `"1.4.3"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
