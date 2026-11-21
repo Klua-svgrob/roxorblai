@@ -14,6 +14,8 @@ local window = UI:CreateWindow({
 local main = window:CreateTab({ Id = "main", Title = "概览", Icon = "grid", Description = "你的空间，由你定义。" })
 main:AddHero()
 local appearance = main:AddSection({ Title = "外观偏好", Description = "按照你的习惯，调整这个空间。" })
+local focus = appearance:AddToggle({ Id = "focus", Title = "专注模式", Default = false })
+focus:AddKeyPicker({ Id = "focus-key", Default = "None", Mode = "Toggle" })
 appearance:AddToggle({ Id = "glass", Title = "毛玻璃", Description = "让背景柔和地融入界面", Default = true,
     Callback = function(value) window:SetGlass(value) end })
 appearance:AddToggle({ Id = "motion", Title = "柔和动效", Default = true,

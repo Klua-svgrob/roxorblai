@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.3.0" }
+local Library = { Version = "1.4.0" }
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -193,7 +193,7 @@ local Window = {
     _notifications = {}, _notificationQueue = {}, _notificationMap = {}, _notificationCounter = 0,
     _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
-    OnDestroy = options.OnDestroy, Features = {},
+    OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {},
     FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
@@ -551,6 +551,7 @@ end
 
 function Window:SetVisible(visible)
     if self._destroyed then return end
+    self:_cancelKeyCapture()
     self.Visible = visible == true
     self:_syncMouse()
     self._visibilityVersion = (self._visibilityVersion or 0) + 1
@@ -815,6 +816,144 @@ end
 function Window:_closeDropdown()
     if self._dropdown then self._dropdown:Destroy(); self._dropdown = nil end
     self._dropdownOwner = nil
+    local cleanup = self._dropdownCleanup
+    self._dropdownCleanup = nil
+    if cleanup then cleanup() end
+end
+
+function Window:_cancelKeyCapture()
+    local picker = Environment.__AuraKeyCapture
+    if picker and picker.Window == self then
+        picker.Capturing = false
+        Environment.__AuraKeyCapture = nil
+        picker:_refresh()
+    end
+end
+
+function Window:_releaseKeyHolds()
+    self:_cancelKeyCapture()
+    for _, picker in ipairs(self._keyPickers) do picker:_release() end
+end
+
+local function bindingName(value)
+    if value == nil or value == false or value == "" or value == "None" then return "None" end
+    if typeof(value) == "EnumItem" then
+        if value.EnumType ~= Enum.KeyCode then return nil end
+        value = value.Name
+    end
+    if value == "Escape" then return "None" end
+    if type(value) ~= "string" then return nil end
+    local ok, key = pcall(function() return Enum.KeyCode[value] end)
+    if not ok or not key or key == Enum.KeyCode.Unknown then return nil end
+    return key.Name
+end
+
+function Window:_addKeyPicker(toggle, row, options)
+    assert(not self._destroyed, "This AURA window has been destroyed")
+    assert(not toggle.KeyPicker, "This toggle already has a key picker")
+    options = options or {}
+    if options.Id ~= nil then assert(self.Controls[tostring(options.Id)] == nil, "Duplicate control Id: " .. tostring(options.Id)) end
+    local mode = options.Mode or "Toggle"
+    assert(mode == "Toggle" or mode == "Hold", "Key picker Mode must be Toggle or Hold")
+    local initial = bindingName(options.Default)
+    assert(initial, "Invalid default key binding")
+    local ui = self
+    local badge = button(row, {
+        Name = "KeyBinding", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -74, 0.5, 0),
+        Size = UDim2.fromOffset(62, 26), Text = "None", TextSize = 11, BackgroundColor3 = COLORS.White,
+        BackgroundTransparency = 0.1, ZIndex = row.ZIndex + 8,
+    })
+    corner(badge, 7)
+    local outline = stroke(badge, COLORS.Line, 0.15)
+    local picker = { Window = self, Toggle = toggle, Button = badge, Value = initial, Mode = mode, Capturing = false, _down = false, _held = false }
+    function picker:_refresh()
+        if ui._destroyed then return end
+        badge.Text = self.Capturing and "..." or self.Value
+        local ok, bounds = pcall(TextService.GetTextSize, TextService, badge.Text, 11, MEDIUM, Vector2.new(500, 30))
+        badge.Size = UDim2.fromOffset(math.clamp((ok and bounds.X or #badge.Text * 6) + 20, 54, 116), 26)
+        outline.Color = self.Capturing and ui.Accent or COLORS.Line
+        badge.TextColor3 = self.Capturing and ui.Accent or COLORS.Secondary
+    end
+    function picker:_release()
+        self._down = false
+        if self._held then self._held = false; toggle:SetValue(false) end
+    end
+    function picker:SetValue(value, silent)
+        if ui._destroyed then return self end
+        local name = bindingName(value)
+        if not name then return self end
+        self:_release()
+        if Environment.__AuraKeyCapture == self then ui:_cancelKeyCapture() end
+        self.Value = name
+        self:_refresh()
+        if not silent then ui:_callback(options.Callback, self.Value, self.Mode) end
+        return self
+    end
+    function picker:GetValue() return self.Value end
+    function picker:SetMode(value, silent)
+        if ui._destroyed then return self end
+        assert(value == "Toggle" or value == "Hold", "Key picker Mode must be Toggle or Hold")
+        self:_release()
+        self.Mode = value
+        if value == "Hold" and toggle:GetValue() then toggle:SetValue(false) end
+        if ui._dropdownOwner == self then ui:_closeDropdown() end
+        if not silent then ui:_callback(options.Callback, self.Value, self.Mode) end
+        return self
+    end
+    function picker:GetMode() return self.Mode end
+    function picker:BeginCapture()
+        if ui._destroyed or not ui.Visible then return self end
+        local previous = Environment.__AuraKeyCapture
+        if previous then previous.Window:_cancelKeyCapture() end
+        ui:_closeDropdown()
+        ui:_releaseKeyHolds()
+        self.Capturing = true
+        Environment.__AuraKeyCapture = self
+        self:_refresh()
+        return self
+    end
+    function picker:_begin()
+        if self._down then return end
+        self._down = true
+        if self.Mode == "Hold" then self._held = true; toggle:SetValue(true)
+        else toggle:SetValue(not toggle:GetValue()) end
+    end
+    function picker:OpenModeMenu()
+        if ui._destroyed or not ui.Visible then return end
+        ui:_cancelKeyCapture()
+        local same = ui._dropdownOwner == self
+        ui:_closeDropdown()
+        if same then return end
+        local overlay = button(screen, { Name = "KeyModeOverlay", Size = UDim2.fromScale(1, 1), ZIndex = 80 })
+        ui._dropdown, ui._dropdownOwner = overlay, self
+        ui._dropdownCleanup = function() self.Menu = nil end
+        ui:_listen(overlay.Activated, function() ui:_closeDropdown() end)
+        local viewport = ui:_viewport()
+        local width, height = math.min(120, math.max(60, viewport.X - 16)), 80
+        local x = math.clamp(badge.AbsolutePosition.X + badge.AbsoluteSize.X - width, 8, math.max(8, viewport.X - width - 8))
+        local y = badge.AbsolutePosition.Y + badge.AbsoluteSize.Y + 5
+        if y + height > viewport.Y - 8 then y = math.max(8, badge.AbsolutePosition.Y - height - 5) end
+        local menu = create("Frame", { Name = "KeyModeMenu", Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(width, height), BackgroundColor3 = COLORS.White, ZIndex = 85 }, overlay)
+        corner(menu, 10); stroke(menu, COLORS.Line, 0.15)
+        self.Menu = menu
+        for index, value in ipairs({ "Toggle", "Hold" }) do
+            local item = button(menu, {
+                Name = value, Position = UDim2.fromOffset(5, 5 + (index - 1) * 35), Size = UDim2.new(1, -10, 0, 35),
+                Text = value, BackgroundColor3 = COLORS.Hover, BackgroundTransparency = self.Mode == value and 0 or 1,
+                TextColor3 = self.Mode == value and ui.Accent or COLORS.Secondary, TextSize = 11, ZIndex = 86,
+            })
+            corner(item, 6)
+            ui:_listen(item.Activated, function() self:SetMode(value) end)
+        end
+    end
+    ui:_listen(badge.Activated, function() picker:BeginCapture() end)
+    ui:_listen(badge.MouseButton2Click, function() picker:OpenModeMenu() end)
+    picker:_refresh()
+    if mode == "Hold" and toggle:GetValue() then toggle:SetValue(false) end
+    table.insert(self._keyPickers, picker)
+    toggle.KeyPicker = picker
+    if options.Id ~= nil then self.Controls[tostring(options.Id)] = picker end
+    return picker
 end
 
 function Window:SetTitle(title)
@@ -873,6 +1012,7 @@ function Window:GetTab(id) return self.TabMap[tostring(id)] end
 function Window:SelectTab(tab)
     if type(tab) == "string" then tab = self.TabMap[tab] end
     if self._destroyed or not table.find(self.Tabs, tab) then return end
+    self:_cancelKeyCapture()
     self:_closeDropdown()
     self._pointer = nil
     self._selectedTab = tab
@@ -1011,7 +1151,7 @@ function Section:AddToggle(options)
         Size = UDim2.fromOffset(17, 17), BackgroundColor3 = COLORS.White,
     }, track)
     corner(knob, 30)
-    local control = { Value = options.Default == true }
+    local control = { Value = options.Default == true, Frame = row }
     function control:SetValue(value, silent)
         if ui._destroyed then return end
         self.Value = value == true
@@ -1021,6 +1161,7 @@ function Section:AddToggle(options)
         if options.FeatureList ~= false then ui:SetFeature(options.Id or control._featureId, options.FeatureTitle or options.Title or "Toggle", self.Value, options.ParentFeature) end
     end
     function control:GetValue() return self.Value end
+    function control:AddKeyPicker(keyOptions) return ui:_addKeyPicker(self, row, keyOptions) end
     ui:_bindAccent(track, "BackgroundColor3", function(accent) return control.Value and accent or COLORS.Track end)
     ui:_listen(hit.Activated, function() control:SetValue(not control.Value) end)
     control._featureId = "toggle:" .. tostring(row)
@@ -1327,7 +1468,9 @@ function Tab:AddHero(options)
 end
 
 function Window:Destroy(skipGui)
-    if self._destroyed then return end
+    if self._destroyed or self._destroying then return end
+    self._destroying = true
+    self:_releaseKeyHolds()
     self._destroyed = true
     self:_syncMouse()
     self._pointer = nil
@@ -1375,15 +1518,46 @@ Window:_listen(UserInputService.InputChanged, function(input)
     end
 end)
 Window:_listen(UserInputService.InputEnded, function(input)
+    if Environment.__AuraConsumedInput == input then Environment.__AuraConsumedInput = nil end
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        for _, picker in ipairs(Window._keyPickers) do
+            if picker.Value ~= "None" and input.KeyCode == Enum.KeyCode[picker.Value] then picker:_release() end
+        end
+    end
     local pointer = Window._pointer
     if pointer and (input == pointer.input or (pointer.input.UserInputType == Enum.UserInputType.MouseButton1
         and input.UserInputType == Enum.UserInputType.MouseButton1)) then Window._pointer = nil end
 end)
-Window:_listen(UserInputService.WindowFocusReleased, function() Window._pointer = nil end)
+Window:_listen(UserInputService.WindowFocusReleased, function()
+    Window._pointer = nil
+    Window:_releaseKeyHolds()
+    Window:_closeDropdown()
+    Environment.__AuraConsumedInput = nil
+end)
 Window:_listen(UserInputService.InputBegan, function(input, processed)
+    if Environment.__AuraConsumedInput == input then return end
+    local capture = Environment.__AuraKeyCapture
+    if capture then
+        if capture.Window == Window and input.UserInputType == Enum.UserInputType.Keyboard then
+            if input.KeyCode == Enum.KeyCode.Escape then
+                Environment.__AuraConsumedInput = input
+                capture:SetValue("None")
+            elseif input.KeyCode ~= Enum.KeyCode.Unknown then
+                Environment.__AuraConsumedInput = input
+                capture:SetValue(input.KeyCode)
+                capture._down = true
+            end
+        end
+        return
+    end
     if UserInputService:GetFocusedTextBox() then return end
     if input.KeyCode == Enum.KeyCode.Escape and Window._dropdown then Window:_closeDropdown(); return end
     if processed then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard and not Window._dropdown then
+        for _, picker in ipairs(Window._keyPickers) do
+            if picker.Value ~= "None" and input.KeyCode == Enum.KeyCode[picker.Value] then picker:_begin() end
+        end
+    end
     if input.KeyCode == Window.ToggleKey and Registry[id] == Window then Window:SetVisible(not Window.Visible) end
 end)
 Window:_listen(minimize.Activated, function() Window:SetVisible(false) end)

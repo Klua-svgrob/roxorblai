@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes reusable controls, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.3.0**.
+A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.0**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external images or UI dependencies. Loading the library returns an API; it does not create a demo window.
 
@@ -36,7 +36,7 @@ See [ui.example.lua](ui.example.lua) for a complete example with three tabs, app
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.3.0"` |
+| `UI.Version` | `"1.4.0"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -133,6 +133,44 @@ Input submits when focus is lost or Enter is pressed. Its second callback argume
 window:GetControl("on"):SetValue(true)
 window:GetControl("amount"):SetValue(3.5, true)
 print(window:GetControl("mode"):GetValue())
+```
+
+## Inline key bindings
+
+Attach a key badge to a toggle without creating an extra settings row:
+
+```lua
+local toggle = section:AddToggle({
+    Id = "feature", Title = "Feature", Default = false,
+    Callback = function(enabled) print(enabled) end,
+})
+
+local key = toggle:AddKeyPicker({
+    Id = "feature-key", Default = "None", Mode = "Toggle",
+})
+```
+
+The badge appears immediately before the switch. Left-click `None` or an existing key to show `...` and capture the next keyboard key. Press **Escape** during capture to clear the binding back to `None`. The captured press does not activate the feature or the window visibility shortcut.
+
+Right-click the badge to open a small menu containing exactly two modes: **Toggle** switches the feature on or off once per key press; **Hold** enables it while pressed and disables it on release. Escape outside capture closes the mode menu without clearing the binding. Clicking outside the menu also closes it.
+
+| API | Description |
+|---|---|
+| `toggle:AddKeyPicker(options)` | Attaches one picker to the toggle and returns its handle |
+| `Default` | Key name, `Enum.KeyCode` item, or `"None"`; defaults to `"None"` |
+| `Mode` | `"Toggle"` or `"Hold"`; defaults to `"Toggle"` |
+| `Id` | Optional unique control ID for `window:GetControl(id)` |
+| `Callback(keyName, mode)` | Optional notification when binding or mode changes |
+| `key:GetValue()` / `key:SetValue(value, silent)` | Reads or changes the binding; `nil`, `"None"`, or Escape clears it |
+| `key:GetMode()` / `key:SetMode(mode, silent)` | Reads or changes the input mode |
+| `key:BeginCapture()` | Starts keyboard capture while the window is visible |
+
+Keyboard shortcuts work while the main window is hidden. Focused text boxes and processed gameplay input do not trigger them. Release events still end Hold even when processed. Losing application focus, rebinding, switching modes, or destroying the window releases held features. Focus loss, hiding the window, or changing tabs cancels an unfinished capture while keeping the existing binding. Capture ownership is shared across windows and separately loaded copies of the library.
+
+```lua
+key:SetValue(Enum.KeyCode.F8)
+key:SetMode("Hold")
+key:SetValue("None", true)
 ```
 
 ## Visual color picker
@@ -233,10 +271,10 @@ Overflow remains manually scrollable. Automatic scrolling moves vertically at co
 
 EMDEN now uses this library directly for its six tabs, controls, visual color picker, notifications, mouse unlocking, and enabled-feature settings. Closing its window also unloads its runtime. Saved-location refresh removes entire old button rows.
 
-Upload the **1.3.0** `ui.lua` to the repository before running the updated EMDEN script. EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to this repository's Raw URL. It checks the library version to avoid loading an older API.
+Upload the **1.4.0** `ui.lua` to the repository before running the updated EMDEN script. EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to this repository's Raw URL. It checks the library version to avoid loading an older API. Its silent-aim shortcut now uses an inline `None` badge with custom keyboard capture and Toggle/Hold modes instead of a separate dropdown.
 
 ## Validation
 
-The library and example pass compilation with the official Luau compiler. The offline harness covers 443 API, color picker, mouse, and notification assertions, 90 feature layout and replacement assertions, and 171 example and cleanup assertions. EMDEN also passes 114 integration assertions using the actual UI source with mocked native services.
+The library and example pass compilation with the official Luau compiler. The offline harness covers 443 API, color picker, mouse, and notification assertions, 90 feature layout and replacement assertions, 110 inline keyboard capture and Toggle/Hold assertions, and 177 example and cleanup assertions. EMDEN also passes 120 integration assertions using the actual UI source with mocked native services.
 
-These checks use mocked Roblox services and a local replacement for the network loader. The repository previously served version 1.2.0; the changed files in this package still need to be uploaded. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.
+These checks use mocked Roblox services and a local replacement for the network loader. The updated 1.4.0 files in this package still need to be uploaded to the repository. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.
