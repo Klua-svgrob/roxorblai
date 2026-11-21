@@ -6,11 +6,11 @@ The interface mounts under `gethui()`. It uses native Roblox UI objects and grad
 
 ## Quick start
 
-Upload `ui.lua`, `ui.example.lua`, and this `README.md` to the root of your GitHub repository. Use the **Raw URL** of `ui.lua` to load the library:
+The library is hosted in [2762779980q-svg/roxorblai](https://github.com/2762779980q-svg/roxorblai). Load `ui.lua` directly from its **Raw URL**:
 
 ```lua
 local UI = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/ui.lua"
+    "https://raw.githubusercontent.com/2762779980q-svg/roxorblai/main/ui.lua"
 ))()
 
 local window = UI:CreateWindow({ Id = "my-script", Title = "My Script" })
@@ -25,9 +25,9 @@ section:AddToggle({
 window:Notify({ Title = "Ready", Content = "Everything is set up.", Type = "success" })
 ```
 
-Replace `YOUR_USER`, `YOUR_REPO`, and the branch name. To pin a version, replace `main` with a commit SHA or tag. If you upload the containing folder instead of its contents, include that folder in the Raw URL path. A GitHub `blob` page returns HTML; use its Raw URL instead.
+To pin a version, replace `main` with a commit SHA or tag. If you fork the repository or move `ui.lua`, update the owner, repository, branch, or file path in the URL. A GitHub `blob` page returns HTML; use its Raw URL instead.
 
-See [ui.example.lua](ui.example.lua) for a complete example with three tabs, appearance controls, a color picker, mouse unlocking, and notifications. Replace its loader URL before running it.
+See [ui.example.lua](ui.example.lua) for a complete example with three tabs, appearance controls, a color picker, mouse unlocking, and notifications. Its loader already points to this repository.
 
 ## Library
 
@@ -197,4 +197,4 @@ Close reasons are `manual`, `timeout`, `clear`, and `overflow`. Destroying a win
 
 The library and example pass compilation with the official Luau compiler. The offline test harness covers 237 API, color picker, mouse, and notification assertions, plus 154 example and cleanup assertions. Coverage includes color coordinates and boundaries, mouse and touch dragging, notification queues, repeated cursor locking, ownership across windows, and cleanup on hiding or destruction.
 
-These checks use mocked Roblox services and a local replacement for the example's network loader. Live Roblox rendering, executor compatibility, game cursor scripts, and GitHub delivery have not been verified.
+These checks use mocked Roblox services and a local replacement for the example's network loader. The public library Raw URL has also been checked and matches the local library source. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.
