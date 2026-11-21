@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.0**.
+A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.2**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external images or UI dependencies. Loading the library returns an API; it does not create a demo window.
 
@@ -36,7 +36,7 @@ See [ui.example.lua](ui.example.lua) for a complete example with three tabs, app
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.0"` |
+| `UI.Version` | `"1.4.2"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -87,7 +87,7 @@ For compatibility, the most recently created window is also stored in `getgenv()
 
 ### Mouse unlocking
 
-Opening a window automatically frees the cursor, so you can interact without pressing Esc. Native button modality, mouse property listeners, and a late render callback handle first-person locking, Shift Lock, and repeated `LockCenter` assignments.
+Opening a window automatically frees the cursor, so you can interact without pressing Esc. The original native button modality, mouse property listeners, and late render callback handle first-person locking, Shift Lock, and repeated `LockCenter` assignments. While a window is visible with mouse unlocking enabled, a small white cross with a dark outline follows the mouse in screen coordinates. This cursor uses native Frames under gethui(), remains visible even if a game hides its system pointer, and disappears when the window is hidden, unlocking is disabled, or the window is destroyed. It is a mouse pointer rather than a fixed center-screen aiming reticle.
 
 Hiding the window stops its mouse override. Destroying it also removes its ownership. Visible windows from separately loaded library instances share mouse management; the cursor remains free until the last eligible window releases it. An initially hidden window never takes mouse ownership.
 
@@ -271,10 +271,10 @@ Overflow remains manually scrollable. Automatic scrolling moves vertically at co
 
 EMDEN now uses this library directly for its six tabs, controls, visual color picker, notifications, mouse unlocking, and enabled-feature settings. Closing its window also unloads its runtime. Saved-location refresh removes entire old button rows.
 
-Upload the **1.4.0** `ui.lua` to the repository before running the updated EMDEN script. EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to this repository's Raw URL. It checks the library version to avoid loading an older API. Its silent-aim shortcut now uses an inline `None` badge with custom keyboard capture and Toggle/Hold modes instead of a separate dropdown.
+Upload the **1.4.2** `ui.lua` to the repository before running the updated EMDEN script. EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to this repository's Raw URL. It checks the library version to avoid loading an older API. Its silent-aim shortcut now uses an inline `None` badge with custom keyboard capture and Toggle/Hold modes instead of a separate dropdown.
 
 ## Validation
 
-The library and example pass compilation with the official Luau compiler. The offline harness covers 443 API, color picker, mouse, and notification assertions, 90 feature layout and replacement assertions, 110 inline keyboard capture and Toggle/Hold assertions, and 177 example and cleanup assertions. EMDEN also passes 120 integration assertions using the actual UI source with mocked native services.
+The library and example pass compilation with the official Luau compiler. The offline harness covers 443 API, color picker, mouse, and notification assertions, 90 feature layout and replacement assertions, 110 inline keyboard capture and Toggle/Hold assertions, and 177 example and cleanup assertions. EMDEN also passes 163 integration assertions using the actual UI source with mocked native services, including its vehicle boost lifecycle.
 
-These checks use mocked Roblox services and a local replacement for the network loader. The updated 1.4.0 files in this package still need to be uploaded to the repository. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.
+These checks use mocked Roblox services and a local replacement for the network loader. The updated 1.4.2 files in this package still need to be uploaded to the repository. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.

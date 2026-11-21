@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.0" }
+local Library = { Version = "1.4.2" }
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -12,6 +12,14 @@ local TextService = game:GetService("TextService")
 local GuiService = game:GetService("GuiService")
 
 local Mouse = Environment.__AuraMouse
+local previousMouse
+if Mouse and Mouse.Version == 2 then
+    previousMouse = Mouse
+    RunService:UnbindFromRenderStep(Mouse.Binding)
+    RunService:UnbindFromRenderStep(Mouse.Binding .. "_Input")
+    for _, connection in ipairs(Mouse.Connections) do connection:Disconnect() end
+    Mouse = nil
+end
 if not Mouse then
     Mouse = { Owners = {}, Connections = {}, Binding = "AURA_MouseUnlock", Applying = false }
     Environment.__AuraMouse = Mouse
@@ -57,6 +65,15 @@ if not Mouse then
         UserInputService.MouseBehavior = self.Behavior
         UserInputService.MouseIconEnabled = self.IconEnabled
     end
+end
+
+if previousMouse then
+    local owners, behavior, icon = previousMouse.Owners, previousMouse.Behavior, previousMouse.IconEnabled
+    for key, value in pairs(Mouse) do previousMouse[key] = value end
+    Mouse, Environment.__AuraMouse = previousMouse, previousMouse
+    Mouse.Version = 1
+    for owner in pairs(owners) do Mouse:Acquire(owner) end
+    Mouse.Behavior, Mouse.IconEnabled = behavior, icon
 end
 
 local COLORS = {
@@ -278,6 +295,18 @@ local screen = create("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 2147483000,
 }, container)
 Window.ScreenGui = screen
+local cursor = create("Frame", {
+    Name = "MouseCursor", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(17, 17),
+    BackgroundTransparency = 1, Active = false, Visible = false, ZIndex = 1000,
+}, screen)
+for index, size in ipairs({ Vector2.new(17, 3), Vector2.new(3, 17), Vector2.new(15, 1), Vector2.new(1, 15) }) do
+    create("Frame", { Name = index <= 2 and "Outline" or "Cross", AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(size.X, size.Y),
+        BackgroundColor3 = index <= 2 and Color3.fromRGB(25, 28, 34) or Color3.fromRGB(255, 255, 255),
+        Active = false, ZIndex = index <= 2 and 1001 or 1002,
+    }, cursor)
+end
+Window.MouseCursor = cursor
 
 local blur = create("BlurEffect", { Name = "AURA_BackgroundBlur_" .. id, Size = 0, Enabled = false }, Lighting)
 Window._blurEffect = blur
@@ -993,10 +1022,28 @@ function Window:Toggle()
     return self
 end
 
+function Window:_updateMouseCursor()
+    cursor.Visible = self.Visible and self.UnlockMouse and not self._destroyed
+    if cursor.Visible then
+        local position = UserInputService:GetMouseLocation()
+        cursor.Position = UDim2.fromOffset(position.X, position.Y)
+    end
+end
+
 function Window:_syncMouse()
     minimize.Modal = self.Visible and self.UnlockMouse and not self._destroyed
     if self.Visible and self.UnlockMouse and not self._destroyed then Mouse:Acquire(self)
     else Mouse:Release(self) end
+    self:_updateMouseCursor()
+    if cursor.Visible then
+        if not self._cursorConnection then
+            self._cursorConnection = self:_listen(RunService.RenderStepped, function() self:_updateMouseCursor() end)
+        end
+    elseif self._cursorConnection then
+        self._cursorConnection:Disconnect()
+        self._connections[self._cursorConnection] = nil
+        self._cursorConnection = nil
+    end
 end
 
 function Window:SetMouseUnlocked(enabled)
@@ -1510,6 +1557,7 @@ Window:_listen(header.InputBegan, function(input)
     end }
 end)
 Window:_listen(UserInputService.InputChanged, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then Window:_updateMouseCursor() end
     local pointer = Window._pointer
     if not pointer then return end
     local mouse = pointer.input.UserInputType == Enum.UserInputType.MouseButton1
