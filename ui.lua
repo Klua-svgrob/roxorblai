@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.3" }
+local Library = { Version = "1.4.4" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -14,7 +14,7 @@ local GuiService = game:GetService("GuiService")
 
 local Mouse = Environment.__AuraMouse
 local previousMouse
-if Mouse and Mouse.Version == 2 then
+if Mouse and Mouse.Version ~= 3 then
     previousMouse = Mouse
     RunService:UnbindFromRenderStep(Mouse.Binding)
     RunService:UnbindFromRenderStep(Mouse.Binding .. "_Input")
@@ -22,7 +22,7 @@ if Mouse and Mouse.Version == 2 then
     Mouse = nil
 end
 if not Mouse then
-    Mouse = { Owners = {}, Connections = {}, Binding = "AURA_MouseUnlock", Applying = false }
+    Mouse = { Version = 3, Owners = {}, Connections = {}, Binding = "AURA_MouseUnlock", Applying = false }
     Environment.__AuraMouse = Mouse
     function Mouse:Enforce()
         if self.Applying or next(self.Owners) == nil then return end
@@ -42,13 +42,6 @@ if not Mouse then
             for _, property in ipairs({ "MouseBehavior", "MouseIconEnabled" }) do
                 table.insert(self.Connections, UserInputService:GetPropertyChangedSignal(property):Connect(function()
                     if self.Applying then return end
-                    if property == "MouseBehavior" then
-                        if UserInputService.MouseBehavior == Enum.MouseBehavior.Default then return end
-                        self.Behavior = UserInputService.MouseBehavior
-                    else
-                        if UserInputService.MouseIconEnabled then return end
-                        self.IconEnabled = UserInputService.MouseIconEnabled
-                    end
                     self:Enforce()
                 end))
             end
@@ -72,7 +65,6 @@ if previousMouse then
     local owners, behavior, icon = previousMouse.Owners, previousMouse.Behavior, previousMouse.IconEnabled
     for key, value in pairs(Mouse) do previousMouse[key] = value end
     Mouse, Environment.__AuraMouse = previousMouse, previousMouse
-    Mouse.Version = 1
     for owner in pairs(owners) do Mouse:Acquire(owner) end
     Mouse.Behavior, Mouse.IconEnabled = behavior, icon
 end
@@ -1043,9 +1035,13 @@ function Window:_updateMouseCursor()
 end
 
 function Window:_syncMouse()
-    minimize.Modal = self.Visible and self.UnlockMouse and not self._destroyed
-    if self.Visible and self.UnlockMouse and not self._destroyed then Mouse:Acquire(self)
-    else Mouse:Release(self) end
+    if self.Visible and self.UnlockMouse and not self._destroyed then
+        Mouse:Acquire(self)
+        minimize.Modal = true
+    else
+        minimize.Modal = false
+        Mouse:Release(self)
+    end
     self:_updateMouseCursor()
     if cursor.Visible then
         if not self._cursorConnection then
