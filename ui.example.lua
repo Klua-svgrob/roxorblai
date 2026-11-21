@@ -1,4 +1,4 @@
-local UI_URL = "https://raw.githubusercontent.com/2762779980q-svg/roxorblai/main/ui.lua"
+local UI_URL = "https://raw.githubusercontent.com/Klua-svgrob/roxorblai/main/ui.lua"
 local source = game:HttpGet(UI_URL)
 local chunk, compileError = loadstring(source, "AURA.UI")
 assert(chunk, compileError)
@@ -29,10 +29,19 @@ display:AddSlider({ Id = "opacity", Title = "玻璃透明度", Min = 4, Max = 36
     Callback = function(value) window:SetTransparency(value / 100) end })
 display:AddColorPicker({ Id = "accent", Title = "强调色", Description = "拖动色彩面板选色，或点击预设色块", Expanded = true,
     Default = Color3.fromRGB(73, 102, 197), Callback = function(color) window:SetAccent(color) end })
-display:AddToggle({ Id = "unlock-mouse", Title = "打开界面时解锁鼠标", Default = true,
+display:AddToggle({ Id = "unlock-mouse", Title = "打开界面时解锁鼠标", Default = true, FeatureList = false,
     Callback = function(enabled) window:SetMouseUnlocked(enabled) end })
 display:AddInput({ Id = "name", Title = "空间名称", Default = "aura", Placeholder = "输入名称…",
     Callback = function(value) window:SetTitle(value ~= "" and value or "aura") end })
+
+local features = settings:AddSection({ Title = "已开启功能" })
+features:AddToggle({ Id = "feature-display", Title = "显示已开启功能", Default = false, FeatureList = false,
+    Callback = function(value) window:SetFeatureList({ Enabled = value }) end })
+local featurePositions = { ["右下角"] = "BottomRight", ["左上角"] = "TopLeft", ["右上角"] = "TopRight", ["中下"] = "BottomCenter", ["中上"] = "TopCenter" }
+features:AddDropdown({ Id = "feature-position", Title = "显示位置", Values = { "右下角", "左上角", "右上角", "中下", "中上" }, Default = "右上角",
+    Callback = function(value) window:SetFeatureList({ Position = featurePositions[value] }) end })
+features:AddToggle({ Id = "feature-scroll", Title = "滚动显示", Default = false, FeatureList = false,
+    Callback = function(value) window:SetFeatureList({ Scrolling = value }) end })
 
 local about = window:CreateTab({ Id = "about", Title = "关于", Icon = "info", Description = "简单一些，也可以很好。" })
 about:AddHero({ Title = "轻一点，\n刚刚好。", Description = "把注意力，留给真正重要的事。" })
@@ -44,7 +53,7 @@ actions:AddButton({ Id = "show-notice", Title = "显示通知", Text = "试试�
 actions:AddButton({ Title = "多条通知", Text = "查看堆叠",
     Callback = function()
         for _, kind in ipairs({ "info", "success", "warning", "error" }) do
-            window:Notify({ Title = kind, Content = "超过可见数量后进入队列，不会覆盖上一条。", Type = kind })
+            window:Notify({ Title = kind, Content = "最多显示三条，新通知会自动移除最旧的一条。", Type = kind })
         end
     end })
 actions:AddButton({ Title = "暂时收起", Text = "收起界面", Callback = function() window:SetVisible(false) end })

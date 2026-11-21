@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.2.0" }
+local Library = { Version = "1.3.0" }
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -9,6 +9,7 @@ local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
+local GuiService = game:GetService("GuiService")
 
 local Mouse = Environment.__AuraMouse
 if not Mouse then
@@ -187,11 +188,13 @@ local Window = {
     UnlockMouse = options.UnlockMouse ~= false,
     Blur = number(options.Blur, 18, 0, 56), Transparency = number(options.Transparency, 0.12, 0, 0.8),
     Zoom = number(options.Scale, 1, 0.5, 1.5), ToggleKey = options.ToggleKey or Enum.KeyCode.RightAlt,
-    NotificationLimit = math.floor(number(options.NotificationLimit, 3, 1, 5)),
+    NotificationLimit = math.floor(number(options.NotificationLimit, 3, 1, 3)),
     NotificationDuration = number(options.NotificationDuration, 4, 0, 3600),
     _notifications = {}, _notificationQueue = {}, _notificationMap = {}, _notificationCounter = 0,
     _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
+    OnDestroy = options.OnDestroy, Features = {},
+    FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
 function Window:_listen(signal, callback)
@@ -258,6 +261,7 @@ function Window:SetAccent(color)
         end
     end
     if self._layoutNotifications then self:_layoutNotifications() end
+    if self._layoutFeatures then self:_layoutFeatures() end
 end
 
 function Window:_callback(callback, ...)
@@ -407,7 +411,128 @@ function Window:_fit()
     local y = math.clamp(self._normalizedCenter.Y * viewport.Y, half.Y + 12, math.max(half.Y + 12, viewport.Y - half.Y - 12))
     host.Position = UDim2.fromOffset(x, y)
     if self._resizeNotifications then self:_resizeNotifications() end
+    if self._layoutFeatures then self:_layoutFeatures() end
 end
+
+function Window:_safeArea()
+    local viewport = self:_viewport()
+    local left, top, right, bottom = 0, 58, 0, 0
+    local ok, a, b = pcall(GuiService.GetGuiInset, GuiService)
+    if ok and typeof(a) == "Vector2" and typeof(b) == "Vector2" then
+        left, top, right, bottom = math.max(0, a.X), math.max(0, a.Y), math.max(0, b.X), math.max(0, b.Y)
+    end
+    local hasBar, bar = pcall(function() return GuiService.TopbarInset end)
+    if hasBar and typeof(bar) == "Rect" then top = math.max(top, bar.Max.Y) end
+    return left + 12, top + 12, math.max(left + 13, viewport.X - right - 12), math.max(top + 13, viewport.Y - bottom - 12)
+end
+
+local featureHost = create("ScrollingFrame", {
+    Name = "EnabledFeatures", BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false,
+    CanvasSize = UDim2.new(), ScrollBarThickness = 2, ScrollBarImageColor3 = COLORS.Muted,
+    ScrollingDirection = Enum.ScrollingDirection.Y, Active = true, ZIndex = 120, ClipsDescendants = true,
+}, screen)
+Window.FeatureFrame = featureHost
+
+function Window:_syncFeatureClock()
+    local enabled = self.FeatureList.Enabled and self.FeatureList.Scrolling and (self._featureOverflow or 0) > 0
+    if not enabled then
+        if self._featureClock then self._featureClock:Disconnect(); self._connections[self._featureClock] = nil; self._featureClock = nil end
+        return
+    end
+    if self._featureClock then return end
+    self._featureClock = self:_listen(RunService.Heartbeat, function(dt)
+        if type(dt) ~= "number" or dt ~= dt or dt <= 0 or self._featureHovered then return end
+        local offset = (self._featureOffset or 0) + math.min(dt, 0.1) * self.FeatureList.Speed * (self._featureDirection or 1)
+        local maximum = self._featureOverflow
+        if offset >= maximum then offset = maximum; self._featureDirection = -1
+        elseif offset <= 0 then offset = 0; self._featureDirection = 1 end
+        self._featureOffset = offset
+        featureHost.CanvasPosition = self._featureHorizontal and Vector2.new(offset, 0) or Vector2.new(0, offset)
+    end)
+end
+
+function Window:_layoutFeatures()
+    if self._destroyed then return end
+    for _, child in ipairs(featureHost:GetChildren()) do child:Destroy() end
+    local config, entries = self.FeatureList, {}
+    local left, top, right, bottom = self:_safeArea()
+    local availableWidth = math.max(1, right - left)
+    for id, feature in pairs(self.Features) do
+        local parent = feature.Parent and self.Controls[tostring(feature.Parent)]
+        if feature.Enabled and (not feature.Parent or (parent and parent:GetValue())) then
+            local ok, bounds = pcall(TextService.GetTextSize, TextService, feature.Title, 12, MEDIUM, Vector2.new(10000, 30))
+            local measuredWidth = (ok and bounds.X or #feature.Title * 7) + 26
+            table.insert(entries, { Id = id, Title = feature.Title, Width = math.min(availableWidth, measuredWidth), SortWidth = measuredWidth })
+        end
+    end
+    table.sort(entries, function(a, b) if a.SortWidth == b.SortWidth then return a.Id < b.Id end; return a.SortWidth > b.SortWidth end)
+    self._featureEntries = entries
+    featureHost.Visible = config.Enabled and #entries > 0
+    self._featureOffset, self._featureDirection = 0, 1
+    featureHost.CanvasPosition = Vector2.new()
+    local horizontal = config.Position == "TopCenter" or config.Position == "BottomCenter"
+    self._featureHorizontal = horizontal
+    if config.Position == "BottomRight" then
+        for _, notice in ipairs(self._notifications) do bottom = bottom - notice.Height - 10 end
+        bottom = math.max(top + 1, bottom - (#self._notifications > 0 and 8 or 0))
+    end
+    local total, widest = 0, 0
+    for _, entry in ipairs(entries) do total = total + (horizontal and entry.Width + 6 or 32); widest = math.max(widest, entry.Width) end
+    total = math.max(0, total - (horizontal and 6 or 4))
+    local width = horizontal and math.min(availableWidth, total) or widest
+    local height = horizontal and 28 or math.min(total, config.MaxHeight, math.max(1, bottom - top))
+    width, height = math.max(1, width), math.max(1, height)
+    local x = config.Position == "TopLeft" and left or horizontal and (left + right - width) / 2 or right - width
+    local y = (config.Position == "BottomRight" or config.Position == "BottomCenter") and bottom - height or top
+    featureHost.Position = UDim2.fromOffset(x, y)
+    featureHost.Size = UDim2.fromOffset(width, height)
+    featureHost.CanvasSize = horizontal and UDim2.fromOffset(total, height) or UDim2.fromOffset(width, total)
+    featureHost.ScrollingDirection = horizontal and Enum.ScrollingDirection.X or Enum.ScrollingDirection.Y
+    self._featureOverflow = math.max(0, total - (horizontal and width or height))
+    if config.Position == "BottomRight" and self._featureOverflow > 0 then
+        self._featureOffset, self._featureDirection = self._featureOverflow, -1
+        featureHost.CanvasPosition = Vector2.new(0, self._featureOverflow)
+    end
+    local offset = 0
+    for index, entry in ipairs(entries) do
+        local rowY = config.Position == "BottomRight" and total - 28 - offset or offset
+        local chip = create("Frame", {
+            Name = "Feature_" .. entry.Id, BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.12,
+            Position = horizontal and UDim2.fromOffset(offset, 0) or UDim2.fromOffset(config.Position == "TopLeft" and 0 or width - entry.Width, rowY),
+            Size = UDim2.fromOffset(entry.Width, 28), ZIndex = 121,
+        }, featureHost)
+        corner(chip, 7)
+        local text = label(chip, entry.Title, 12, UDim2.fromOffset(12, 0), UDim2.new(1, -22, 1, 0), self.Accent, MEDIUM)
+        text.TextTruncate = Enum.TextTruncate.AtEnd
+        offset = offset + (horizontal and entry.Width + 6 or 32)
+    end
+    self:_syncFeatureClock()
+end
+
+function Window:SetFeature(id, title, enabled, parent)
+    if self._destroyed then return self end
+    self.Features[tostring(id)] = { Title = tostring(title), Enabled = enabled == true, Parent = parent }
+    self:_layoutFeatures()
+    return self
+end
+
+function Window:SetFeatureList(options)
+    if self._destroyed then return self end
+    assert(type(options) == "table", "SetFeatureList expects a table")
+    local positions = { TopLeft = true, TopRight = true, BottomRight = true, TopCenter = true, BottomCenter = true }
+    if options.Position ~= nil then assert(positions[options.Position], "Unsupported feature list position"); self.FeatureList.Position = options.Position end
+    if options.Enabled ~= nil then self.FeatureList.Enabled = options.Enabled == true end
+    if options.Scrolling ~= nil then self.FeatureList.Scrolling = options.Scrolling == true end
+    self.FeatureList.Speed = number(options.Speed, self.FeatureList.Speed, 5, 120)
+    self.FeatureList.MaxHeight = number(options.MaxHeight, self.FeatureList.MaxHeight, 28, 600)
+    self:_layoutFeatures()
+    return self
+end
+
+Window:_listen(featureHost.MouseEnter, function() Window._featureHovered = true end)
+Window:_listen(featureHost.MouseLeave, function() Window._featureHovered = false end)
+local insetSignalOK, insetSignal = pcall(GuiService.GetPropertyChangedSignal, GuiService, "TopbarInset")
+if insetSignalOK then Window:_listen(insetSignal, function() Window:_layoutFeatures(); Window:_resizeNotifications() end) end
 
 function Window:_refreshGlass()
     if self._destroyed then return end
@@ -454,7 +579,8 @@ local NOTICE_COLORS = {
 }
 
 function Window:_notificationCapacity()
-    return math.min(self.NotificationLimit, math.max(1, math.floor((self:_viewport().Y - 32) / 152)))
+    local _, top, _, bottom = self:_safeArea()
+    return math.min(self.NotificationLimit, math.max(1, math.floor((bottom - top) / 152)))
 end
 
 function Window:_dropNotificationVisual(notice)
@@ -558,6 +684,7 @@ function Window:_layoutNotifications()
             offset = offset + notice.Height + 10
         end
     end
+    self:_layoutFeatures()
 end
 
 function Window:_syncNotificationClock()
@@ -601,12 +728,8 @@ end
 function Window:_resizeNotifications()
     if self._destroyed then return end
     while #self._notifications > self:_notificationCapacity() do
-        local notice = table.remove(self._notifications)
-        self:_dropNotificationVisual(notice)
-        notice.Status = "queued"
-        table.insert(self._notificationQueue, 1, notice)
+        self._notifications[1]:Dismiss("overflow")
     end
-    while #self._notificationQueue > 32 do self._notificationQueue[#self._notificationQueue]:Dismiss("overflow") end
     self:_pumpNotifications()
 end
 
@@ -624,8 +747,11 @@ function Notification:Dismiss(reason)
     local frame = self.Frame
     self.Frame = nil
     if frame then
-        ui:_animate(frame, { GroupTransparency = 1, Position = UDim2.new(1, self.Width + 20, frame.Position.Y.Scale, frame.Position.Y.Offset) }, 0.18)
-        ui:_later(ui.Motion and 0.19 or 0, function() frame:Destroy() end)
+        if reason == "overflow" then frame:Destroy()
+        else
+            ui:_animate(frame, { GroupTransparency = 1, Position = UDim2.new(1, self.Width + 20, frame.Position.Y.Scale, frame.Position.Y.Offset) }, 0.18)
+            ui:_later(ui.Motion and 0.19 or 0, function() frame:Destroy() end)
+        end
     end
     ui:_pumpNotifications()
     ui:_callback(self.OnClose, reason or "manual")
@@ -666,7 +792,7 @@ function Window:Notify(options, message, duration)
     }, Notification)
     notice.Remaining = notice.Duration
 
-    if #self._notificationQueue >= 32 then self._notificationQueue[1]:Dismiss("overflow") end
+    while #self._notifications >= self:_notificationCapacity() do self._notifications[1]:Dismiss("overflow") end
     self._notificationMap[notice.Id] = notice
     table.insert(self._notificationQueue, notice)
     self:_pumpNotifications()
@@ -892,12 +1018,19 @@ function Section:AddToggle(options)
         ui:_animate(track, { BackgroundColor3 = self.Value and ui.Accent or COLORS.Track })
         ui:_animate(knob, { Position = UDim2.new(0, self.Value and 20 or 3, 0.5, 0) })
         if not silent then ui:_callback(options.Callback, self.Value) end
+        if options.FeatureList ~= false then ui:SetFeature(options.Id or control._featureId, options.FeatureTitle or options.Title or "Toggle", self.Value, options.ParentFeature) end
     end
     function control:GetValue() return self.Value end
     ui:_bindAccent(track, "BackgroundColor3", function(accent) return control.Value and accent or COLORS.Track end)
     ui:_listen(hit.Activated, function() control:SetValue(not control.Value) end)
+    control._featureId = "toggle:" .. tostring(row)
     control:SetValue(control.Value, true)
     return self:_register(options, control)
+end
+
+function Section:AddLabel(text)
+    local row = self:_row({ Title = "" }, 42)
+    return label(row, tostring(text), 11, UDim2.fromOffset(20, 0), UDim2.new(1, -40, 1, 0), COLORS.Secondary)
 end
 
 function Section:AddSlider(options)
@@ -1214,6 +1347,10 @@ function Window:Destroy(skipGui)
     if Registry[id] == self then Registry[id] = nil end
     self._accentBindings = {}
     if Environment.WhiteGlassUI == self then Environment.WhiteGlassUI = nil end
+    if type(self.OnDestroy) == "function" then
+        local ok, message = xpcall(self.OnDestroy, debug.traceback)
+        if not ok then warn("[AURA destroy] " .. tostring(message)) end
+    end
 end
 
 Window:_listen(header.InputBegan, function(input)
