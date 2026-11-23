@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes reusable controls, inline key bindings, a visual color picker, notifications, an enabled-feature overlay, responsive scaling, and automatic mouse unlocking. Version **1.4.4**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, configuration snapshots, key bindings, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.5**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -27,7 +27,7 @@ window:Notify({ Title = "Ready", Content = "Everything is set up.", Type = "succ
 
 To pin a version, replace `main` with a commit SHA or tag. If you fork the repository or move `ui.lua`, update the owner, repository, branch, or file path in the URL. A GitHub `blob` page returns HTML; use its Raw URL instead.
 
-See [ui.example.lua](ui.example.lua) for a complete example with three tabs, appearance controls, a color picker, mouse unlocking, and notifications. Its loader already points to this repository.
+See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery and configuration snapshots. See [CONTROLS.md](CONTROLS.md) for the new 1.4.5 controls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.5+.
 
 ## Library
 
@@ -36,7 +36,7 @@ See [ui.example.lua](ui.example.lua) for a complete example with three tabs, app
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.4"` |
+| `UI.Version` | `"1.4.5"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -271,12 +271,12 @@ Overflow remains manually scrollable. Automatic scrolling moves vertically at co
 
 ## EMDEN integration
 
-EMDEN now uses this library directly for its six tabs, controls, visual color picker, notifications, mouse unlocking, and enabled-feature settings. Closing its window also unloads its runtime. Saved-location refresh removes entire old button rows.
+EMDEN uses this library directly for its seven tabs, controls, visual color picker, notifications, mouse unlocking, and enabled-feature settings. Closing its window also unloads its runtime. Saved-location refresh removes entire old button rows.
 
-Upload the **1.4.2** `ui.lua` to the repository before running the updated EMDEN script. EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to this repository's Raw URL. It checks the library version to avoid loading an older API. Its silent-aim shortcut now uses an inline `None` badge with custom keyboard capture and Toggle/Hold modes instead of a separate dropdown.
+EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to the repository's Raw URL. It accepts compatible AURA 1.4.x releases. New component APIs require **1.4.5**; publish the updated package separately if you want the remote loader to use them.
 
 ## Validation
 
-The library and example pass compilation with the official Luau compiler. The offline harness covers 443 API, color picker, mouse, and notification assertions, 90 feature layout and replacement assertions, 110 inline keyboard capture and Toggle/Hold assertions, and 177 example and cleanup assertions. EMDEN also passes 163 integration assertions using the actual UI source with mocked native services, including its vehicle boost lifecycle.
+Run `python ui-checks/run_checks.py` to compile the library/example and exercise the native-member-checked offline harness: 1,749 assertions cover existing controls, expanded controls, notifications, keys, mouse restoration, config snapshots, dialogs, the example and cleanup. EMDEN passes 751 integration assertions and the home-defense script passes 89 feature assertions using this updated UI source.
 
-These checks use mocked Roblox services and a local replacement for the network loader. The updated 1.4.2 files in this package still need to be uploaded to the repository. Live Roblox rendering, executor compatibility, and game cursor scripts have not been verified.
+These checks use mocked Roblox services and a local replacement for the network loader. No upload was performed. Live Roblox rendering, executor compatibility, text layout and game cursor scripts require in-game verification.

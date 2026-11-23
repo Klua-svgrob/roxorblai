@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.4" }
+local Library = { Version = "1.4.5" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -193,7 +193,7 @@ function Library:CreateWindow(options)
 
 local Window = {
     Id = id, Library = self, Title = tostring(options.Title or "aura"),
-    Tabs = {}, TabMap = {}, Controls = {}, Accent = typeof(options.Accent) == "Color3" and options.Accent or COLORS.Blue, Visible = false,
+    Tabs = {}, TabMap = {}, Controls = {}, _defaults = {}, _nilDefaults = {}, Accent = typeof(options.Accent) == "Color3" and options.Accent or COLORS.Blue, Visible = false,
     Glass = options.Glass ~= false, Motion = options.Motion ~= false,
     UnlockMouse = options.UnlockMouse ~= false,
     Blur = number(options.Blur, 18, 0, 56), Transparency = number(options.Transparency, 0.12, 0, 0.8),
@@ -586,6 +586,7 @@ function Window:SetVisible(visible)
     if self._destroyed then return end
     self:_cancelKeyCapture()
     self.Visible = visible == true
+    if not self.Visible and self._dialog then self._dialog:Close("hidden") end
     self:_syncMouse()
     self._visibilityVersion = (self._visibilityVersion or 0) + 1
     local version = self._visibilityVersion
@@ -949,7 +950,7 @@ function Window:_addKeyPicker(toggle, row, options)
     end
     function picker:GetMode() return self.Mode end
     function picker:BeginCapture()
-        if ui._destroyed or not ui.Visible then return self end
+        if ui._destroyed or not ui.Visible or ui._dialog or self.Disabled or toggle.Disabled or toggle._destroyed then return self end
         local previous = Environment.__AuraKeyCapture
         if previous then previous.Window:_cancelKeyCapture() end
         ui:_closeDropdown()
@@ -960,6 +961,7 @@ function Window:_addKeyPicker(toggle, row, options)
         return self
     end
     function picker:_begin()
+        if self.Disabled or toggle.Disabled or toggle._destroyed or toggle.Frame and toggle.Frame.Visible == false then return end
         if self._down then return end
         self._down = true
         if self.Mode == "Hold" then self._held = true; toggle:SetValue(true)
@@ -999,7 +1001,10 @@ function Window:_addKeyPicker(toggle, row, options)
     if mode == "Hold" and toggle:GetValue() then toggle:SetValue(false) end
     table.insert(self._keyPickers, picker)
     toggle.KeyPicker = picker
-    if options.Id ~= nil then self.Controls[tostring(options.Id)] = picker end
+    if options.Id ~= nil then
+        self.Controls[tostring(options.Id)] = picker
+        self._defaults[tostring(options.Id)] = { Key = initial, Mode = mode }
+    end
     return picker
 end
 
@@ -1171,7 +1176,26 @@ function Tab:AddSection(options)
     if options.Description then
         label(headerRow, options.Description, 11, UDim2.fromOffset(20, 40), UDim2.new(1, -40, 0, 18), COLORS.Secondary)
     end
-    return setmetatable({ Window = self.Window, Frame = card, _order = 0 }, Section)
+    local body = create("Frame", { Name = "Controls", BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1 }, card)
+    create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, body)
+    local section = setmetatable({ Window = self.Window, Frame = card, Body = body, Header = headerRow,
+        Collapsed = false, _order = 0 }, Section)
+    function section:SetCollapsed(value)
+        if self.Window._destroyed then return end
+        self.Collapsed = value == true
+        self.Body.Visible = not self.Collapsed
+        if self.CollapseButton then self.CollapseButton.Text = self.Collapsed and "+" or "−" end
+        self.Window:_closeDropdown(); self.Window._pointer = nil
+    end
+    function section:SetVisible(value) if not self.Window._destroyed then self.Frame.Visible = value == true end end
+    if options.Collapsible or options.Collapsed then
+        section.CollapseButton = button(headerRow, { Text = "−", TextSize = 18,
+            AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 8), Size = UDim2.fromOffset(32, 34) })
+        self.Window:_listen(section.CollapseButton.Activated, function() section:SetCollapsed(not section.Collapsed) end)
+    end
+    section:SetCollapsed(options.Collapsed == true)
+    return section
 end
 
 function Section:_register(options, control)
@@ -1179,6 +1203,73 @@ function Section:_register(options, control)
         local id = tostring(options.Id)
         assert(self.Window.Controls[id] == nil, "Duplicate control Id: " .. id)
         self.Window.Controls[id] = control
+    end
+    if type(control) == "table" and typeof(control) ~= "Instance" then
+        local ui, row = self.Window, self._lastRow
+        control.Frame = control.Frame or row
+        control.Disabled = options.Disabled == true
+        function control:SetVisible(value)
+            if ui._destroyed or self._destroyed then return end
+            self.Frame.Visible = value == true
+            ui._pointer = nil; ui:_closeDropdown()
+            if self.KeyPicker then self.KeyPicker:_release() end
+            if self._release then self:_release() end
+            if Environment.__AuraKeyCapture == self then ui:_cancelKeyCapture() end
+        end
+        function control:SetEnabled(value)
+            if ui._destroyed or self._destroyed then return end
+            self.Disabled = value ~= true
+            if not self._disabledCover then
+                self._disabledCover = button(self.Frame, { Name = "DisabledCover", Size = UDim2.fromScale(1, 1),
+                    BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.5, ZIndex = 70, Active = true })
+            end
+            self._disabledCover.Visible = self.Disabled
+            ui._pointer = nil; ui:_closeDropdown()
+            if self.KeyPicker then self.KeyPicker:_release() end
+            if self._release then self:_release() end
+            if Environment.__AuraKeyCapture == self then ui:_cancelKeyCapture() end
+        end
+        function control:SetTitle(text)
+            if not ui._destroyed and not self._destroyed and row then
+                for _, child in ipairs(row:GetChildren()) do
+                    if child:IsA("TextLabel") then child.Text = tostring(text); break end
+                end
+            end
+        end
+        function control:Destroy()
+            if self._destroyed then return end
+            self:SetEnabled(false)
+            local picker = self.KeyPicker or (self._release and self)
+            if picker then
+                picker:_release(); picker.Disabled = true
+                if Environment.__AuraKeyCapture == picker then ui:_cancelKeyCapture() end
+                local at = table.find(ui._keyPickers, picker)
+                if at then table.remove(ui._keyPickers, at) end
+                for key, value in pairs(ui.Controls) do
+                    if value == picker then ui.Controls[key], ui._defaults[key] = nil, nil end
+                end
+            end
+            self._destroyed = true
+            if type(self._cleanup) == "function" then self:_cleanup() end
+            self.Frame:Destroy()
+            if options.Id ~= nil then
+                local id = tostring(options.Id)
+                if ui.Controls[id] == self then ui.Controls[id], ui._defaults[id], ui._nilDefaults[id], ui.Features[id] = nil, nil, nil, nil; ui:_layoutFeatures() end
+            end
+        end
+        if type(control.GetValue) == "function" and type(control.SetValue) == "function" then
+            local set = control.SetValue
+            control.SetValue = function(self, ...)
+                if not self._destroyed and not ui._destroyed then return set(self, ...) end
+            end
+            if options.Id ~= nil then
+                local value = control:GetValue()
+                ui._defaults[tostring(options.Id)] = type(value) == "table" and table.clone(value) or value
+                if value == nil then ui._nilDefaults[tostring(options.Id)] = true end
+            end
+        end
+        if options.Visible == false then control:SetVisible(false) end
+        if control.Disabled then control:SetEnabled(false) end
     end
     return control
 end
@@ -1188,7 +1279,8 @@ function Section:_row(options, height)
     self._order += 1
     local row = create("Frame", {
         Name = "Control", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, height or 66), LayoutOrder = self._order,
-    }, self.Frame)
+    }, self.Body or self.Frame)
+    self._lastRow = row
     create("Frame", {
         BackgroundColor3 = COLORS.Line, BackgroundTransparency = 0.65,
         Position = UDim2.fromOffset(20, 0), Size = UDim2.new(1, -40, 0, 1),
@@ -1232,7 +1324,7 @@ function Section:AddToggle(options)
     function control:GetValue() return self.Value end
     function control:AddKeyPicker(keyOptions) return ui:_addKeyPicker(self, row, keyOptions) end
     ui:_bindAccent(track, "BackgroundColor3", function(accent) return control.Value and accent or COLORS.Track end)
-    ui:_listen(hit.Activated, function() control:SetValue(not control.Value) end)
+    ui:_listen(hit.Activated, function() if not control.Disabled then control:SetValue(not control.Value) end end)
     control._featureId = "toggle:" .. tostring(row)
     control:SetValue(control.Value, true)
     return self:_register(options, control)
@@ -1280,12 +1372,14 @@ function Section:AddSlider(options)
     end
     function control:GetValue() return self.Value end
     local function move(position)
+        if control.Disabled or control._destroyed then return end
         if hit.AbsoluteSize.X > 0 then
             local fraction = math.clamp((position.X - hit.AbsolutePosition.X) / hit.AbsoluteSize.X, 0, 1)
             control:SetValue(minimum + fraction * (maximum - minimum))
         end
     end
     ui:_listen(hit.InputBegan, function(input)
+        if control.Disabled then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             ui._pointer = { input = input, move = move }
             move(input.Position)
@@ -1371,9 +1465,10 @@ function Section:AddColorPicker(options)
         row.Size = UDim2.new(1, 0, 0, baseHeight + (self.Expanded and 220 or 0))
         panel.Visible = self.Expanded
     end
-    ui:_listen(field.Activated, function() control:SetExpanded(not control.Expanded) end)
+    ui:_listen(field.Activated, function() if not control.Disabled then control:SetExpanded(not control.Expanded) end end)
     local function drag(area, move)
         ui:_listen(area.InputBegan, function(input)
+            if control.Disabled then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 ui:_closeDropdown()
                 ui._pointer = { input = input, move = move, owner = control }
@@ -1399,7 +1494,7 @@ function Section:AddColorPicker(options)
             BackgroundColor3 = color, BackgroundTransparency = 0,
         })
         corner(swatch, 7); stroke(swatch, COLORS.Line, 0.25)
-        ui:_listen(swatch.Activated, function() control:SetValue(color) end)
+        ui:_listen(swatch.Activated, function() if not control.Disabled then control:SetValue(color) end end)
     end
     control:SetValue(options.Default or ui.Accent, true)
     control:SetExpanded(options.Expanded == true)
@@ -1419,13 +1514,25 @@ function Section:AddDropdown(options)
     local text = label(field, "", 11, UDim2.fromOffset(12, 0), UDim2.new(1, -43, 1, 0), COLORS.Secondary)
     icon(field, "chevron", COLORS.Muted, UDim2.new(1, -28, 0.5, -10))
     local multi = options.Multi == true
-    local control = { Value = multi and {} or options.Default or options.Values[1] }
+    options = table.clone(options)
+    options.Values = table.clone(options.Values)
+    local control = { Value = multi and {} or options.Default or options.Values[1], Button = field, _allowNil = not multi }
+    function control:_isValidValue(value)
+        if not multi then return value == nil or table.find(options.Values, value) ~= nil end
+        if type(value) ~= "table" then return false end
+        local count = 0
+        for key, entry in pairs(value) do
+            if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or not table.find(options.Values, entry) then return false end
+            count += 1
+        end
+        return count == #value
+    end
     local items = {}
     local function selected(value)
         return multi and table.find(control.Value, value) ~= nil or not multi and control.Value == value
     end
     local function refresh()
-        text.Text = multi and (#control.Value == 0 and "未选择" or table.concat(control.Value, "、")) or tostring(control.Value)
+        text.Text = multi and (#control.Value == 0 and "未选择" or table.concat(control.Value, "、")) or (control.Value ~= nil and tostring(control.Value) or "未选择")
         for value, item in pairs(items) do
             item.BackgroundTransparency = selected(value) and 0.15 or 1
             item.TextColor3 = selected(value) and ui.Accent or COLORS.Secondary
@@ -1442,35 +1549,77 @@ function Section:AddDropdown(options)
             end
             self.Value = values
         else
-            if not table.find(options.Values, value) then return end
+            if value ~= nil and not table.find(options.Values, value) then return end
             self.Value = value
         end
         refresh()
         if not silent then ui:_callback(options.Callback, multi and table.clone(self.Value) or self.Value) end
     end
     function control:GetValue() return multi and table.clone(self.Value) or self.Value end
+    function control:SetValues(values, silent)
+        if ui._destroyed or self._destroyed then return end
+        assert(type(values) == "table", "Dropdown Values must be an array")
+        local copied, seen = {}, {}
+        for _, value in ipairs(values) do
+            assert(type(value) == "string" or type(value) == "number" and value == value and math.abs(value) ~= math.huge, "Invalid dropdown value")
+            if not seen[value] then copied[#copied + 1] = value; seen[value] = true end
+        end
+        ui:_closeDropdown(); items = {}; options.Values = copied
+        if multi then self:SetValue(self.Value, silent)
+        else
+            self.Value = table.find(copied, self.Value) and self.Value or copied[1]
+            refresh()
+            if not silent then ui:_callback(options.Callback, self.Value) end
+        end
+    end
     ui:_listen(field.Activated, function()
+        if control.Disabled or control._destroyed then return end
         local same = ui._dropdownOwner == control
         ui:_closeDropdown()
         items = {}
         if same then return end
         local overlay = button(screen, { Size = UDim2.fromScale(1, 1), ZIndex = 80 })
         ui._dropdown, ui._dropdownOwner = overlay, control
+        ui._dropdownCleanup = function() items = {}; control.SearchBox, control.Menu = nil, nil end
         ui:_listen(overlay.Activated, function() ui:_closeDropdown() end)
         local viewport = ui:_viewport()
         local itemHeight, padding = 34 * ui._scale, 6 * ui._scale
-        local height = math.min(#options.Values * itemHeight + padding * 2, math.max(50, viewport.Y - 24))
-        local width = field.AbsoluteSize.X
+        local searchHeight = options.Searchable and 36 * ui._scale or 0
+        local height = math.min(math.max(44, #options.Values * itemHeight + padding * 2 + searchHeight), 280 * ui._scale, math.max(50, viewport.Y - 24))
+        local width = math.min(field.AbsoluteSize.X, math.max(50, viewport.X - 16))
         local x = math.clamp(field.AbsolutePosition.X, 8, math.max(8, viewport.X - width - 8))
         local y = field.AbsolutePosition.Y + field.AbsoluteSize.Y + padding
         if y + height > viewport.Y - 8 then y = math.max(8, field.AbsolutePosition.Y - height - padding) end
-        local menu = create("ScrollingFrame", {
+        local panel = create("Frame", {
             Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(width, height),
-            CanvasSize = UDim2.fromOffset(0, #options.Values * itemHeight + padding * 2),
-            ScrollBarThickness = 2, BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.02, ZIndex = 85,
-            ScrollingDirection = Enum.ScrollingDirection.Y, Active = true,
+            BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.02, ZIndex = 85,
         }, overlay)
-        corner(menu, 11); stroke(menu, COLORS.Line, 0.15)
+        corner(panel, 11); stroke(panel, COLORS.Line, 0.15)
+        local menu = create("ScrollingFrame", {
+            Position = UDim2.fromOffset(0, searchHeight), Size = UDim2.new(1, 0, 1, -searchHeight),
+            CanvasSize = UDim2.fromOffset(0, #options.Values * itemHeight + padding * 2),
+            ScrollBarThickness = 2, BackgroundTransparency = 1, ZIndex = 85,
+            ScrollingDirection = Enum.ScrollingDirection.Y, Active = true,
+        }, panel)
+        control.Menu = menu
+        local empty = label(menu, "没有匹配选项", 11, UDim2.fromOffset(padding, padding), UDim2.new(1, -padding * 2, 0, itemHeight), COLORS.Muted)
+        empty.Visible = #options.Values == 0
+        if options.Searchable then
+            local search = create("TextBox", { Name = "Search", Text = "", PlaceholderText = "搜索…", ClearTextOnFocus = false,
+                Font = FONT, TextSize = 11, TextColor3 = COLORS.Text, BackgroundTransparency = 1, ZIndex = 87,
+                Position = UDim2.fromOffset(padding, 0), Size = UDim2.new(1, -padding * 2, 0, searchHeight) }, panel)
+            control.SearchBox = search
+            ui:_listen(search:GetPropertyChangedSignal("Text"), function()
+                local count = 0
+                for _, value in ipairs(options.Values) do
+                    local item = items[value]
+                    item.Visible = string.find(string.lower(tostring(value)), string.lower(search.Text), 1, true) ~= nil
+                    if item.Visible then item.Position = UDim2.fromOffset(padding, padding + count * itemHeight); count += 1 end
+                end
+                empty.Visible = count == 0
+                menu.CanvasSize = UDim2.fromOffset(0, count * itemHeight + padding * 2)
+            end)
+        end
         for index, value in ipairs(options.Values) do
             local item = button(menu, {
                 Position = UDim2.fromOffset(padding, padding + (index - 1) * itemHeight),
@@ -1482,6 +1631,7 @@ function Section:AddDropdown(options)
             corner(item, 7)
             items[value] = item
             ui:_listen(item.Activated, function()
+                if control.Disabled then return end
                 if multi then
                     local values = control:GetValue()
                     local index = table.find(values, value)
@@ -1523,6 +1673,7 @@ function Section:AddInput(options)
     ui:_listen(field.Focused, function() ui:_animate(outline, { Color = ui.Accent, Transparency = 0.1 }) end)
     ui:_listen(field.FocusLost, function(enterPressed)
         ui:_animate(outline, { Color = COLORS.Line, Transparency = 0.25 })
+        if control.Disabled then field.Text = control.Value; return end
         control.Value = field.Text
         ui:_callback(options.Callback, control.Value, enterPressed)
     end)
@@ -1545,6 +1696,488 @@ function Section:AddButton(options)
     ui:_listen(control.MouseEnter, function() ui:_animate(control, { BackgroundTransparency = options.Primary and 0.15 or 0 }) end)
     ui:_listen(control.MouseLeave, function() ui:_animate(control, { BackgroundTransparency = options.Primary and 0 or 0.2 }) end)
     return self:_register(options, control)
+end
+
+local function finiteNumber(value, fallback)
+    value = tonumber(value)
+    if not value or value ~= value or math.abs(value) == math.huge then return fallback end
+    return value
+end
+
+local function choiceValues(values, allowEmpty)
+    assert(type(values) == "table", "Values must be an array")
+    local result, seen = {}, {}
+    for _, value in ipairs(values) do
+        assert(type(value) == "string" or type(value) == "number" and finiteNumber(value) ~= nil, "Choices must be strings or finite numbers")
+        if not seen[value] then seen[value] = true; result[#result + 1] = value end
+    end
+    assert(allowEmpty or #result > 0, "Values must not be empty")
+    return result
+end
+
+function Section:AddCheckbox(options)
+    options = options or {}
+    local ui, row = self.Window, self:_row(options, 58)
+    local hit = button(row, { Size = UDim2.fromScale(1, 1) })
+    local square = button(hit, { Name = "Checkbox", AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -22, 0.5, 0), Size = UDim2.fromOffset(23, 23), Text = "", TextSize = 16,
+        TextColor3 = COLORS.White, BackgroundColor3 = COLORS.Track, BackgroundTransparency = 0 })
+    corner(square, 6)
+    local control = { Value = false, Button = square }
+    function control:SetValue(value, silent)
+        self.Value = value == true
+        square.Text = self.Value and "✓" or ""
+        square.BackgroundColor3 = self.Value and ui.Accent or COLORS.Track
+        if not silent then ui:_callback(options.Callback, self.Value) end
+    end
+    function control:GetValue() return self.Value end
+    ui:_bindAccent(square, "BackgroundColor3", function(accent) return control.Value and accent or COLORS.Track end)
+    local function toggle() if not control.Disabled then control:SetValue(not control.Value) end end
+    ui:_listen(hit.Activated, toggle); ui:_listen(square.Activated, toggle)
+    control:SetValue(options.Default, true)
+    return self:_register(options, control)
+end
+
+function Section:AddNumberInput(options)
+    options = options or {}
+    local ui, row = self.Window, self:_row(options, 66)
+    local minimum, maximum = finiteNumber(options.Min, -1e9), finiteNumber(options.Max, 1e9)
+    assert(maximum >= minimum, "NumberInput Max must be >= Min")
+    local precision = math.clamp(math.floor(finiteNumber(options.Decimals, 0)), 0, 6)
+    local step, factor = finiteNumber(options.Step, 1), 10 ^ precision
+    assert(step > 0 and step * factor >= 1, "Step must be positive and fit Decimals")
+    local field = create("TextBox", { Name = "NumberInput", AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -55, 0.5, 0), Size = UDim2.fromOffset(110, 33), Text = "",
+        ClearTextOnFocus = false, Font = FONT, TextSize = 12, TextColor3 = COLORS.Text,
+        BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.2 }, row)
+    corner(field, 8); stroke(field, COLORS.Line, 0.25)
+    local less = button(row, { Name = "Decrease", Text = "−", TextSize = 18, AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -170, 0.5, 0), Size = UDim2.fromOffset(30, 33), BackgroundColor3 = COLORS.Hover, BackgroundTransparency = 0 })
+    local more = button(row, { Name = "Increase", Text = "+", TextSize = 18, AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -20, 0.5, 0), Size = UDim2.fromOffset(30, 33), BackgroundColor3 = COLORS.Hover, BackgroundTransparency = 0 })
+    corner(less, 8); corner(more, 8)
+    local control = { Value = minimum, TextBox = field, Increase = more, Decrease = less }
+    function control:SetValue(value, silent)
+        value = finiteNumber(value)
+        if not value then field.Text = string.format("%." .. precision .. "f", self.Value); return end
+        self.Value = math.clamp(math.floor(value * factor + 0.5) / factor, minimum, maximum)
+        field.Text = string.format("%." .. precision .. "f", self.Value)
+        if not silent then ui:_callback(options.Callback, self.Value) end
+    end
+    function control:GetValue() return self.Value end
+    ui:_listen(less.Activated, function() if not control.Disabled then control:SetValue(control.Value - step) end end)
+    ui:_listen(more.Activated, function() if not control.Disabled then control:SetValue(control.Value + step) end end)
+    ui:_listen(field.FocusLost, function() control:SetValue(control.Disabled and control.Value or field.Text, control.Disabled) end)
+    control:SetValue(options.Default or 0, true)
+    return self:_register(options, control)
+end
+
+function Section:AddTextArea(options)
+    options = options or {}
+    local height = math.clamp(finiteNumber(options.Height, 110), 60, 500)
+    local ui, row = self.Window, self:_row(options, height + 52)
+    local maxLength = math.max(0, math.floor(finiteNumber(options.MaxLength, 4000)))
+    local field = create("TextBox", { Name = "TextArea", Position = UDim2.fromOffset(20, 43), Size = UDim2.new(1, -40, 0, height),
+        Text = "", PlaceholderText = options.Placeholder or "输入多行文本…", MultiLine = true, TextWrapped = true,
+        TextEditable = options.ReadOnly ~= true, ClearTextOnFocus = false, Font = FONT, TextSize = 12,
+        TextColor3 = COLORS.Text, PlaceholderColor3 = COLORS.Muted, TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top, BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.2 }, row)
+    corner(field, 9); stroke(field, COLORS.Line, 0.25)
+    create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 9) }, field)
+    local control = { Value = "", TextBox = field }
+    function control:SetValue(value, silent)
+        value = tostring(value or "")
+        local count = utf8.len(value)
+        if not count then return end
+        if count > maxLength then value = value:sub(1, (utf8.offset(value, maxLength + 1) or (#value + 1)) - 1) end
+        self.Value, field.Text = value, value
+        if not silent then ui:_callback(options.Callback, value) end
+    end
+    function control:GetValue() return self.Value end
+    function control:SetReadOnly(value)
+        if not ui._destroyed and not self._destroyed then options.ReadOnly = value == true; field.TextEditable = not options.ReadOnly end
+    end
+    ui:_listen(field.FocusLost, function(enter)
+        if control.Disabled or options.ReadOnly then field.Text = control.Value; return end
+        control:SetValue(field.Text, true); ui:_callback(options.Callback, control.Value, enter)
+    end)
+    control:SetValue(options.Default or "", true)
+    return self:_register(options, control)
+end
+
+function Section:AddParagraph(options)
+    options = options or {}
+    local ui, row = self.Window, self:_row({ Id = options.Id, Title = "" }, 80)
+    local title = label(row, options.Title or "说明", 12, UDim2.fromOffset(20, 13), UDim2.new(1, -40, 0, 22), COLORS.Text, MEDIUM)
+    local content = label(row, "", 11, UDim2.fromOffset(20, 39), UDim2.new(1, -40, 0, 24), COLORS.Secondary)
+    content.TextWrapped, content.TextYAlignment = true, Enum.TextYAlignment.Top
+    local control = { Label = content, TitleLabel = title }
+    function control:SetText(text)
+        if ui._destroyed or self._destroyed then return end
+        content.Text = tostring(text or "")
+        local function measure()
+            local width = math.max(80, row.AbsoluteSize.X / math.max(0.01, ui._scale) - 40)
+            local bounds = TextService:GetTextSize(content.Text, 11, FONT, Vector2.new(width, 100000))
+            content.Size = UDim2.new(1, -40, 0, math.max(22, bounds.Y + 2))
+            row.Size = UDim2.new(1, 0, 0, math.max(75, bounds.Y + 55))
+        end
+        measure()
+    end
+    ui:_listen(row:GetPropertyChangedSignal("AbsoluteSize"), function() control:SetText(content.Text) end)
+    control:SetText(options.Content or options.Text or "")
+    local result = self:_register(options, control)
+    function result:SetTitle(text) if not ui._destroyed and not self._destroyed then title.Text = tostring(text) end end
+    return result
+end
+
+function Section:AddDivider(options)
+    if type(options) == "string" then options = { Title = options } end
+    options = options or {}
+    local row = self:_row({ Id = options.Id, Title = "" }, options.Title and 42 or 18)
+    local text = label(row, options.Title or "", 10, UDim2.fromOffset(20, 0), UDim2.new(1, -40, 1, 0), COLORS.Muted, MEDIUM)
+    local control = self:_register(options, { Label = text })
+    local ui = self.Window
+    function control:SetTitle(value) if not self._destroyed and not ui._destroyed then text.Text = tostring(value) end end
+    return control
+end
+
+function Section:AddProgress(options)
+    options = options or {}
+    local ui, row = self.Window, self:_row(options, 78)
+    local minimum, maximum = finiteNumber(options.Min, 0), finiteNumber(options.Max, 100)
+    assert(maximum > minimum, "Progress Max must exceed Min")
+    local valueLabel = label(row, "", 11, UDim2.new(1, -130, 0, 11), UDim2.fromOffset(108, 23), COLORS.Secondary)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    local track = create("Frame", { Position = UDim2.fromOffset(20, 49), Size = UDim2.new(1, -40, 0, 7), BackgroundColor3 = COLORS.Track }, row)
+    corner(track, 6)
+    local fill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = ui.Accent }, track)
+    corner(fill, 6); ui:_bindAccent(fill, "BackgroundColor3")
+    local control = { Value = minimum, Fill = fill, Label = valueLabel, _excludeConfig = true }
+    function control:SetValue(value, silent)
+        value = finiteNumber(value)
+        if not value then return end
+        self.Value = math.clamp(value, minimum, maximum)
+        local ratio = (self.Value - minimum) / (maximum - minimum)
+        fill.Size = UDim2.fromScale(ratio, 1)
+        valueLabel.Text = options.Format and tostring(options.Format(self.Value, ratio)) or string.format("%d%%", math.floor(ratio * 100 + 0.5))
+        if not silent then ui:_callback(options.Callback, self.Value) end
+    end
+    function control:GetValue() return self.Value end
+    control:SetValue(options.Default or minimum, true)
+    return self:_register(options, control)
+end
+
+function Section:AddSelect(options)
+    options = options or {}
+    local values = choiceValues(options.Values, false)
+    assert(#values <= 6, "Select supports up to six segments; use a dropdown or list for more")
+    local ui, row = self.Window, self:_row(options, 92)
+    local host = create("Frame", { Position = UDim2.fromOffset(20, 44), Size = UDim2.new(1, -40, 0, 33), BackgroundColor3 = COLORS.Track }, row)
+    corner(host, 9)
+    local control = { Value = values[1], Buttons = {} }
+    function control:_isValidValue(value) return table.find(values, value) ~= nil end
+    function control:SetValue(value, silent)
+        if not table.find(values, value) then return end
+        self.Value = value
+        for option, item in pairs(self.Buttons) do
+            item.BackgroundTransparency = option == value and 0 or 1
+            item.TextColor3 = option == value and ui.Accent or COLORS.Secondary
+        end
+        if not silent then ui:_callback(options.Callback, value) end
+    end
+    function control:GetValue() return self.Value end
+    for index, value in ipairs(values) do
+        local item = button(host, { Name = tostring(value), Position = UDim2.new((index - 1) / #values, 2, 0, 2),
+            Size = UDim2.new(1 / #values, -4, 1, -4), Text = tostring(value), BackgroundColor3 = COLORS.White, TextSize = 11 })
+        corner(item, 7); control.Buttons[value] = item
+        ui:_bindAccent(item, "TextColor3", function(accent) return control.Value == value and accent or COLORS.Secondary end)
+        ui:_listen(item.Activated, function() if not control.Disabled then control:SetValue(value) end end)
+    end
+    control:SetValue(options.Default or values[1], true)
+    return self:_register(options, control)
+end
+
+function Section:AddButtonGroup(options)
+    options = options or {}
+    assert(type(options.Buttons) == "table" and #options.Buttons > 0 and #options.Buttons <= 4, "ButtonGroup needs one to four buttons")
+    local ui, row = self.Window, self:_row(options, 91)
+    local control = { Buttons = {} }
+    for index, entry in ipairs(options.Buttons) do
+        local item = button(row, { Name = tostring(entry.Id or index), Text = entry.Text or entry.Title or "执行",
+            Position = UDim2.new((index - 1) / #options.Buttons, 20, 0, 43), Size = UDim2.new(1 / #options.Buttons, -40, 0, 33),
+            BackgroundColor3 = entry.Primary and ui.Accent or COLORS.Hover, BackgroundTransparency = 0,
+            TextColor3 = entry.Primary and COLORS.White or COLORS.Secondary })
+        corner(item, 8)
+        if entry.Primary then ui:_bindAccent(item, "BackgroundColor3") end
+        control.Buttons[entry.Id or index] = item
+        ui:_listen(item.Activated, function() if not control.Disabled then ui:_callback(entry.Callback) end end)
+    end
+    return self:_register(options, control)
+end
+
+function Section:AddList(options)
+    options = options or {}
+    local values = choiceValues(options.Values or {}, true)
+    local ui, row = self.Window, self:_row(options, 270)
+    local searchEnabled = options.Searchable ~= false
+    local height = math.clamp(finiteNumber(options.Height, 160), 60, 400)
+    row.Size = UDim2.new(1, 0, 0, height + (searchEnabled and 92 or 55))
+    local search
+    if searchEnabled then
+        search = create("TextBox", { Name = "Search", Text = "", PlaceholderText = options.Placeholder or "搜索选项…",
+            ClearTextOnFocus = false, Position = UDim2.fromOffset(20, 41), Size = UDim2.new(1, -40, 0, 30),
+            BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.2, Font = FONT, TextSize = 11, TextColor3 = COLORS.Text }, row)
+        corner(search, 8); stroke(search, COLORS.Line, 0.3)
+    end
+    local list = create("ScrollingFrame", { Name = "List", Position = UDim2.fromOffset(20, searchEnabled and 79 or 42),
+        Size = UDim2.new(1, -40, 0, height), CanvasSize = UDim2.new(), ScrollBarThickness = 3,
+        BackgroundColor3 = COLORS.White, BackgroundTransparency = 0.3, Active = true, ScrollingDirection = Enum.ScrollingDirection.Y }, row)
+    corner(list, 8)
+    local empty = label(list, options.EmptyText or "没有匹配选项", 11, UDim2.fromOffset(10, 8), UDim2.new(1, -20, 0, 28), COLORS.Muted)
+    local multi = options.Multi == true
+    local control = { Value = multi and {} or nil, Items = {}, SearchBox = search, List = list, Query = "", _itemConnections = {}, _allowNil = not multi }
+    function control:_isValidValue(value)
+        if not multi then return value == nil or table.find(values, value) ~= nil end
+        if type(value) ~= "table" then return false end
+        local count = 0
+        for key, entry in pairs(value) do
+            if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or not table.find(values, entry) then return false end
+            count += 1
+        end
+        return count == #value
+    end
+    local function refresh()
+        local count = 0
+        for _, value in ipairs(values) do
+            local item = control.Items[value]
+            local selected = multi and table.find(control.Value, value) ~= nil or not multi and control.Value == value
+            item.Text = (multi and (selected and "✓  " or "    ") or "") .. tostring(value)
+            item.TextColor3 = selected and ui.Accent or COLORS.Secondary
+            item.BackgroundTransparency = selected and 0.1 or 1
+            item.Visible = string.find(string.lower(tostring(value)), string.lower(control.Query), 1, true) ~= nil
+            if item.Visible then item.Position = UDim2.fromOffset(5, 5 + count * 32); count += 1 end
+        end
+        empty.Visible = count == 0
+        list.CanvasSize = UDim2.fromOffset(0, math.max(38, count * 32 + 10))
+    end
+    function control:SetValue(value, silent)
+        if multi then
+            if type(value) ~= "table" then return end
+            local selected = {}
+            for _, option in ipairs(values) do if table.find(value, option) then selected[#selected + 1] = option end end
+            self.Value = selected
+        else
+            if value ~= nil and not table.find(values, value) then return end
+            self.Value = value
+        end
+        refresh()
+        if not silent then ui:_callback(options.Callback, self:GetValue()) end
+    end
+    function control:GetValue() return multi and table.clone(self.Value) or self.Value end
+    function control:SetSearch(query)
+        if ui._destroyed or self._destroyed then return end
+        self.Query = tostring(query or "")
+        if search and search.Text ~= self.Query then search.Text = self.Query end
+        refresh()
+    end
+    function control:_cleanup()
+        for _, connection in ipairs(self._itemConnections) do connection:Disconnect(); ui._connections[connection] = nil end
+        self._itemConnections = {}
+    end
+    function control:SetValues(newValues, silent)
+        if ui._destroyed or self._destroyed then return end
+        values = choiceValues(newValues, true)
+        self:_cleanup()
+        for _, item in pairs(self.Items) do item:Destroy() end
+        self.Items = {}
+        for _, value in ipairs(values) do
+            local item = button(list, { Name = tostring(value), Size = UDim2.new(1, -10, 0, 30), TextXAlignment = Enum.TextXAlignment.Left,
+                TextSize = 11, BackgroundColor3 = COLORS.Hover })
+            corner(item, 6); self.Items[value] = item
+            self._itemConnections[#self._itemConnections + 1] = ui:_listen(item.Activated, function()
+                if self.Disabled or self._destroyed then return end
+                if multi then
+                    local selected = self:GetValue(); local at = table.find(selected, value)
+                    if at then table.remove(selected, at) else selected[#selected + 1] = value end
+                    self:SetValue(selected)
+                else self:SetValue(value) end
+            end)
+        end
+        self:SetValue(multi and self.Value or table.find(values, self.Value) and self.Value or nil, silent)
+    end
+    if search then ui:_listen(search:GetPropertyChangedSignal("Text"), function() control:SetSearch(search.Text) end) end
+    control:SetValues(values, true)
+    control:SetValue(options.Default or (multi and {} or nil), true)
+    ui:_bindAccent(list, "ScrollBarImageColor3", function(accent) refresh(); return accent end)
+    return self:_register(options, control)
+end
+
+function Section:AddKeybind(options)
+    options = options or {}
+    local ui, row = self.Window, self:_row(options, 66)
+    local proxy = { Value = false }
+    function proxy:GetValue() return self.Value end
+    function proxy:SetValue(value) self.Value = value == true; ui:_callback(options.Callback, self.Value) end
+    local pickerOptions = table.clone(options); pickerOptions.Id, pickerOptions.Callback = nil, options.Changed
+    local picker = ui:_addKeyPicker(proxy, row, pickerOptions)
+    picker.Button.Position = UDim2.new(1, -22, 0.5, 0)
+    local result = self:_register(options, picker)
+    if options.Id then ui._defaults[tostring(options.Id)] = { Key = picker.Value, Mode = picker.Mode } end
+    return result
+end
+
+function Window:GetValues()
+    local values = {}
+    for id, control in pairs(self.Controls) do
+        if typeof(control) ~= "Instance" and type(control.GetValue) == "function" and not control._excludeConfig and not control._destroyed then
+            values[id] = control:GetValue()
+        end
+    end
+    return values
+end
+
+function Window:SetValues(values, silent)
+    assert(type(values) == "table", "SetValues expects a table")
+    local failed = {}
+    for id, value in pairs(values) do
+        local control = self.Controls[tostring(id)]
+        if control and typeof(control) ~= "Instance" and type(control.SetValue) == "function" and not control._excludeConfig then
+            local ok, message = pcall(control.SetValue, control, value, silent == true)
+            if not ok then failed[tostring(id)] = tostring(message) end
+        end
+    end
+    return failed
+end
+
+function Window:ExportConfig()
+    local values = {}
+    for id, control in pairs(self.Controls) do
+        if typeof(control) ~= "Instance" and type(control.GetValue) == "function" and type(control.SetValue) == "function"
+            and not control._excludeConfig and not control._destroyed then
+            local value = control:GetValue()
+            if value == nil then values[id] = { Type = "Nil" }
+            elseif typeof(value) == "Color3" then values[id] = { Type = "Color3", Value = { value.R, value.G, value.B } }
+            elseif control.GetMode then values[id] = { Type = "Keybind", Value = value, Mode = control:GetMode() }
+            else values[id] = { Type = "Value", Value = type(value) == "table" and table.clone(value) or value } end
+        end
+    end
+    return { Version = 1, Values = values }
+end
+
+function Window:ImportConfig(config, silent)
+    assert(type(config) == "table" and config.Version == 1 and type(config.Values) == "table", "Unsupported AURA config")
+    local values, modes, nils = {}, {}, {}
+    local failed = {}
+    for id, entry in pairs(config.Values) do
+        local control = self.Controls[tostring(id)]
+        if control and typeof(control) ~= "Instance" and type(control.GetValue) == "function" and type(control.SetValue) == "function"
+            and not control._excludeConfig and type(entry) == "table" then
+            local current = control:GetValue()
+            if entry.Type == "Color3" and typeof(current) == "Color3" then
+                local v = entry.Value
+                if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number"
+                    and finiteNumber(v[1]) and finiteNumber(v[2]) and finiteNumber(v[3]) then
+                    values[id] = Color3.new(math.clamp(v[1], 0, 1), math.clamp(v[2], 0, 1), math.clamp(v[3], 0, 1))
+                else failed[tostring(id)] = "Invalid color" end
+            elseif entry.Type == "Keybind" and control.GetMode then
+                if bindingName(entry.Value) and (entry.Mode == "Toggle" or entry.Mode == "Hold") then
+                    values[id], modes[id] = entry.Value, entry.Mode
+                else failed[tostring(id)] = "Invalid keybind" end
+            elseif entry.Type == "Nil" and control._allowNil then
+                nils[id] = true
+            elseif entry.Type == "Value" and not control.GetMode
+                and (type(current) == type(entry.Value) and typeof(current) == typeof(entry.Value) or current == nil and control._allowNil)
+                and (type(entry.Value) ~= "number" or finiteNumber(entry.Value) ~= nil) then
+                if control._isValidValue and not control:_isValidValue(entry.Value) then failed[tostring(id)] = "Invalid choice"
+                else values[id] = entry.Value end
+            else failed[tostring(id)] = "Value type mismatch" end
+        end
+    end
+    -- Set key modes before replaying values so Hold bindings cannot restore a latched key.
+    for id, mode in pairs(modes) do self.Controls[tostring(id)]:SetMode(mode, true) end
+    for id in pairs(values) do
+        local control = self.Controls[tostring(id)]
+        if control.KeyPicker and control.KeyPicker:GetMode() == "Hold" then values[id] = false end
+    end
+    for id, message in pairs(self:SetValues(values, silent)) do failed[id] = message end
+    for id in pairs(nils) do
+        local ok, message = pcall(self.Controls[tostring(id)].SetValue, self.Controls[tostring(id)], nil, silent == true)
+        if not ok then failed[id] = tostring(message) end
+    end
+    return failed
+end
+
+function Window:ResetValues(silent)
+    local values = {}
+    for id, default in pairs(self._defaults) do
+        local control = self.Controls[id]
+        if control and control.GetMode and type(default) == "table" and default.Key then
+            control:SetMode(default.Mode, true); values[id] = default.Key
+        else values[id] = type(default) == "table" and table.clone(default) or default end
+    end
+    for id in pairs(values) do
+        local control = self.Controls[id]
+        if control and control.KeyPicker and control.KeyPicker:GetMode() == "Hold" then values[id] = false end
+    end
+    local failed = self:SetValues(values, silent)
+    for id in pairs(self._nilDefaults) do
+        local control = self.Controls[id]
+        if control then
+            local ok, message = pcall(control.SetValue, control, nil, silent == true)
+            if not ok then failed[id] = tostring(message) end
+        end
+    end
+    return failed
+end
+
+function Window:Dialog(options)
+    options = options or {}
+    if self._destroyed then return nil end
+    if self._dialog then self._dialog:Close("replaced") end
+    self:_cancelKeyCapture(); self:_closeDropdown(); self:_releaseKeyHolds(); self._pointer = nil
+    self:SetVisible(true)
+    local ui = self
+    local viewport = self:_viewport()
+    local width = math.min(420, math.max(160, viewport.X - 32))
+    local bodyHeight = TextService:GetTextSize(tostring(options.Content or ""), 12, FONT, Vector2.new(width - 44, 10000)).Y
+    local height = math.min(math.max(170, bodyHeight + 130), math.max(140, viewport.Y - 32))
+    local overlay = button(screen, { Name = "DialogOverlay", Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = COLORS.Graphite, BackgroundTransparency = 0.6, ZIndex = 120, Active = true, Modal = true })
+    local panel = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(width, height), BackgroundColor3 = COLORS.White, ZIndex = 121 }, overlay)
+    corner(panel, 16); stroke(panel, COLORS.Line, 0.2)
+    label(panel, tostring(options.Title or "提示"), 16, UDim2.fromOffset(22, 15), UDim2.new(1, -44, 0, 30), COLORS.Text, MEDIUM)
+    local scroll = create("ScrollingFrame", { Position = UDim2.fromOffset(22, 53), Size = UDim2.new(1, -44, 1, -113),
+        BackgroundTransparency = 1, CanvasSize = UDim2.fromOffset(0, bodyHeight), ScrollBarThickness = 2,
+        ScrollingDirection = Enum.ScrollingDirection.Y, Active = true }, panel)
+    local content = label(scroll, tostring(options.Content or ""), 12, UDim2.new(), UDim2.new(1, -5, 0, bodyHeight), COLORS.Secondary)
+    content.TextWrapped, content.TextYAlignment = true, Enum.TextYAlignment.Top
+    local handle = { Frame = panel, Closed = false }
+    function handle:Close(reason)
+        if self.Closed then return end
+        self.Closed, self.Reason = true, reason or "closed"
+        overlay:Destroy()
+        if ui._dialog == self then ui._dialog = nil end
+        ui:_callback(options.OnClose, self.Reason)
+    end
+    function handle:Confirm()
+        if self.Closed or ui._destroyed then return end
+        self:Close("confirmed"); ui:_callback(options.Callback, true)
+    end
+    function handle:Cancel()
+        if self.Closed or ui._destroyed then return end
+        self:Close("cancelled"); ui:_callback(options.Callback, false)
+    end
+    local cancel = button(panel, { Text = options.CancelText or "取消", Position = UDim2.new(0.5, -4, 1, -49),
+        AnchorPoint = Vector2.new(1, 0), Size = UDim2.new(0.5, -22, 0, 32), BackgroundColor3 = COLORS.Hover, BackgroundTransparency = 0 })
+    local confirm = button(panel, { Text = options.ConfirmText or "确定", Position = UDim2.new(0.5, 4, 1, -49),
+        Size = UDim2.new(0.5, -26, 0, 32), BackgroundColor3 = ui.Accent, BackgroundTransparency = 0, TextColor3 = COLORS.White })
+    corner(cancel, 8); corner(confirm, 8); ui:_bindAccent(confirm, "BackgroundColor3")
+    self:_listen(cancel.Activated, function() handle:Cancel() end)
+    self:_listen(confirm.Activated, function() handle:Confirm() end)
+    handle.ConfirmButton, handle.CancelButton = confirm, cancel
+    self._dialog = handle
+    return handle
 end
 
 function Tab:AddHero(options)
@@ -1576,6 +2209,7 @@ end
 function Window:Destroy(skipGui)
     if self._destroyed or self._destroying then return end
     self._destroying = true
+    if self._dialog then self._dialog:Close("destroyed") end
     self:_releaseKeyHolds()
     self._destroyed = true
     self:_syncMouse()
@@ -1642,6 +2276,10 @@ Window:_listen(UserInputService.WindowFocusReleased, function()
     Environment.__AuraConsumedInput = nil
 end)
 Window:_listen(UserInputService.InputBegan, function(input, processed)
+    if Window._dialog then
+        if not processed and not UserInputService:GetFocusedTextBox() and input.KeyCode == Enum.KeyCode.Escape then Window._dialog:Cancel() end
+        return
+    end
     if Environment.__AuraConsumedInput == input then return end
     local capture = Environment.__AuraKeyCapture
     if capture then

@@ -1,8 +1,17 @@
 local UI_URL = "https://raw.githubusercontent.com/Klua-svgrob/roxorblai/main/ui.lua"
-local source = game:HttpGet(UI_URL)
+local source
+if type(isfile) == "function" and type(readfile) == "function" then
+    for _, path in ipairs({ "现代化luauui/ui.lua", "ui.lua" }) do
+        local ok, text = pcall(function() if isfile(path) then return readfile(path) end end)
+        if ok and type(text) == "string" then source = text; break end
+    end
+end
+source = source or game:HttpGet(UI_URL)
 local chunk, compileError = loadstring(source, "AURA.UI")
 assert(chunk, compileError)
 local UI = chunk()
+local patchVersion = type(UI) == "table" and type(UI.Version) == "string" and tonumber(UI.Version:match("^1%.4%.(%d+)$"))
+assert(patchVersion and patchVersion >= 5, "此示例需要 AURA 1.4.5+，请更新本地或远程 ui.lua")
 
 local window = UI:CreateWindow({
     Id = "aura-demo", Title = "aura", Subtitle = "为专注留一点空间",
@@ -22,6 +31,42 @@ appearance:AddToggle({ Id = "motion", Title = "柔和动效", Default = true,
     Callback = function(value) window:SetMotion(value) end })
 appearance:AddSlider({ Id = "blur", Title = "背景模糊", Min = 0, Max = 32, Default = 18,
     Callback = function(value) window:SetBlur(value) end })
+
+local components = window:CreateTab({ Id = "components", Title = "控件展示", Icon = "grid", Description = "输入、选择、反馈与配置。" })
+local inputs = components:AddSection({ Title = "常用输入", Collapsible = true })
+inputs:AddCheckbox({ Id = "demo-check", Title = "启用提示", Default = true })
+local progress = inputs:AddProgress({ Id = "demo-progress", Title = "完成度", Default = 35 })
+inputs:AddNumberInput({ Id = "demo-number", Title = "调整进度", Min = 0, Max = 100, Step = 5, Default = 35,
+    Callback = function(value) progress:SetValue(value) end })
+inputs:AddSelect({ Id = "demo-select", Title = "运行模式", Values = { "安静", "均衡", "性能" }, Default = "均衡" })
+inputs:AddTextArea({ Id = "demo-notes", Title = "备注", Default = "支持多行文本。\n这里可以记录你的设置。", MaxLength = 500 })
+inputs:AddKeybind({ Id = "demo-key", Title = "独立快捷键", Default = "None", Mode = "Toggle",
+    Callback = function(active) window:Notify({ Title = "快捷键", Content = active and "已激活" or "已释放" }) end })
+local choices = components:AddSection({ Title = "动态选项", Collapsible = true })
+choices:AddDropdown({ Id = "demo-dropdown", Title = "搜索下拉框", Values = { "默认配置", "日常使用", "测试配置" }, Searchable = true })
+local list = choices:AddList({ Id = "demo-list", Title = "多选列表", Values = { "通知", "快捷键", "自动保存", "显示状态" },
+    Multi = true, Default = { "通知", "快捷键" }, Searchable = true, Height = 130 })
+choices:AddDivider("操作")
+choices:AddButtonGroup({ Id = "demo-list-actions", Title = "列表操作", Buttons = {
+    { Id = "refresh", Text = "刷新选项", Callback = function() list:SetValues({ "通知", "快捷键", "新的选项" }) end },
+    { Id = "clear", Text = "清空选择", Callback = function() list:SetValue({}) end },
+} })
+local config = components:AddSection({ Title = "配置快照", Collapsible = true })
+config:AddParagraph({ Title = "保存与恢复", Content = "导出返回普通Lua表，可自行用HttpService转JSON保存。本例只保存在内存中。" })
+local snapshot
+config:AddButtonGroup({ Id = "demo-config-actions", Title = "配置操作", Buttons = {
+    { Id = "save", Text = "保存快照", Primary = true, Callback = function()
+        snapshot = window:ExportConfig()
+        window:Notify({ Title = "配置", Content = "已保存当前控件快照。" })
+    end },
+    { Id = "load", Text = "恢复快照", Callback = function()
+        if snapshot then window:ImportConfig(snapshot) else window:Notify({ Title = "配置", Content = "请先保存快照。" }) end
+    end },
+    { Id = "reset", Text = "恢复默认", Callback = function()
+        window:Dialog({ Title = "恢复默认设置", Content = "将已注册的输入和选项恢复到创建时的默认值。", ConfirmText = "恢复",
+            Callback = function(confirmed) if confirmed then window:ResetValues() end end })
+    end },
+} })
 
 local settings = window:CreateTab({ Id = "settings", Title = "界面设置", Icon = "settings", Description = "让这个空间更像你。" })
 local display = settings:AddSection({ Title = "显示" })
