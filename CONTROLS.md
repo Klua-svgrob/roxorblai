@@ -101,6 +101,40 @@ ImportConfig核对版本、类型、颜色、键名、模式和当前可选值�
 
 默认会调用控件Callback；silent=true仅改UI状态，调用方需同步自身功能状态。配置接口不自动访问磁盘、不上传、不执行配置内容。它是可JSON序列化的值快照，而非自动保存管理器。
 
+## 独立悬浮球（快捷球）
+
+按钮和开关可通过 `FloatingBall=true` 启用此控件，会在原控件行左侧添加「快捷球」开关；默认关闭。开启后，功能名称显示在屏幕中央的25×25小球中，主窗口收起后仍然显示。
+
+```lua
+local feature = section:AddToggle({
+    Id = "feature", Title = "功能名称", Default = false,
+    FloatingBall = true,
+    Callback = function(enabled) print(enabled) end,
+})
+
+local action = section:AddButton({
+    Id = "action", Title = "执行操作",
+    FloatingBall = { Enabled = false, Locked = false, Width = 25, Height = 25 },
+    Callback = function() print("执行") end,
+})
+
+-- 已创建的开关也可后续添加；每个控件最多一个快捷球。
+-- local ball = anotherToggle:AddFloatingBall({ Width = 25, Height = 35 })
+local ball = window:GetFloatingBall("feature") -- 也接受控件本身
+-- 开关亦可使用 feature.FloatingBall；action继续返回原生TextButton。
+ball:SetEnabled(true)
+ball:SetLocked(false)
+ball:SetSize(25, 35)
+-- ball:SetTitle("自定义名称")
+-- ball:Destroy() -- 删除快捷球及行内开关，保留原功能控件
+```
+
+未锁定时，左键点击不执行功能，长按0.2秒后可拖动；锁定后，左键点击执行按钮或切换功能，不能拖动。右键菜单提供锁定／解除锁定、关闭快捷球、宽高输入与应用大小，宽高分别限制为16–256像素。触摸长按支持拖动，锁定后轻触执行。
+
+关闭快捷球只隐藏它并关闭对应「快捷球」开关，不会关闭功能。重新开启保留当前会话的位置、锁定状态和大小。功能开关关闭为白底、开启为蓝底，普通UI点击、快捷键、SetValue及配置恢复都会同步；无持续状态的按钮执行时短暂变蓝0.25秒。禁用源控件或打开模态弹窗时，小球不能执行功能。控件或窗口销毁时自动清理小球、菜单和监听。快捷球外观、位置和锁定状态不纳入配置快照。
+
+示例的「专注模式」和「显示通知」提供「快捷球」开关。本功能需要AURA 1.4.6+。
+
 ## 验证与边界
 
 `python ui-checks/run_checks.py`验证现有与新增控件的真实库源码、严格原生成员访问、搜索过滤、动态刷新、配置、弹窗、键盘和清理。EMDEN与家庭防御各自的集成检查也已通过。离线测试不能替代Roblox中的实际字体布局、触屏体验及执行器兼容性验证。

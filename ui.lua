@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.5" }
+local Library = { Version = "1.4.6" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -203,7 +203,7 @@ local Window = {
     _notifications = {}, _notificationQueue = {}, _notificationMap = {}, _notificationCounter = 0,
     _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
-    OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {},
+    OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {}, _floatingBalls = {},
     FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
@@ -445,6 +445,7 @@ function Window:_fit()
     host.Position = UDim2.fromOffset(x, y)
     if self._resizeNotifications then self:_resizeNotifications() end
     if self._layoutFeatures then self:_layoutFeatures() end
+    for _, ball in pairs(self._floatingBalls) do ball:_fit() end
 end
 
 function Window:_safeArea()
@@ -1234,6 +1235,7 @@ function Section:_register(options, control)
                 for _, child in ipairs(row:GetChildren()) do
                     if child:IsA("TextLabel") then child.Text = tostring(text); break end
                 end
+                if self.FloatingBall then self.FloatingBall:SetTitle(text) end
             end
         end
         function control:Destroy()
@@ -1318,6 +1320,7 @@ function Section:AddToggle(options)
         self.Value = value == true
         ui:_animate(track, { BackgroundColor3 = self.Value and ui.Accent or COLORS.Track })
         ui:_animate(knob, { Position = UDim2.new(0, self.Value and 20 or 3, 0.5, 0) })
+        if self.FloatingBall then self.FloatingBall:_refresh() end
         if not silent then ui:_callback(options.Callback, self.Value) end
         if options.FeatureList ~= false then ui:SetFeature(options.Id or control._featureId, options.FeatureTitle or options.Title or "Toggle", self.Value, options.ParentFeature) end
     end
@@ -1327,7 +1330,12 @@ function Section:AddToggle(options)
     ui:_listen(hit.Activated, function() if not control.Disabled then control:SetValue(not control.Value) end end)
     control._featureId = "toggle:" .. tostring(row)
     control:SetValue(control.Value, true)
-    return self:_register(options, control)
+    self:_register(options, control)
+    function control:AddFloatingBall(ballOptions)
+        return ui:_attachFloatingBall(self, row, options.Title or "选项", ballOptions, true)
+    end
+    if options.FloatingBall then control:AddFloatingBall(type(options.FloatingBall) == "table" and options.FloatingBall or {}) end
+    return control
 end
 
 function Section:AddLabel(text)
@@ -1680,6 +1688,219 @@ function Section:AddInput(options)
     return self:_register(options, control)
 end
 
+function Window:GetFloatingBall(control)
+    if type(control) == "string" or type(control) == "number" then control = self:GetControl(control) end
+    return self._floatingBalls[control]
+end
+
+-- Native buttons keep their original return type; their ball is available through GetFloatingBall.
+function Window:_attachFloatingBall(source, row, title, options, isToggle)
+    assert(not self._destroyed, "This AURA window has been destroyed")
+    assert(not self._floatingBalls[source], "This control already has a floating ball")
+    options = options or {}
+    local ui = self
+    local handle = { Enabled = false, Locked = options.Locked == true, Width = 25, Height = 25,
+        Title = tostring(options.Title or title), _center = Vector2.new(0.5, 0.5), _connections = {} }
+    local function listen(signal, callback)
+        local connection = ui:_listen(signal, function(...)
+            if not handle._destroyed then callback(...) end
+        end)
+        table.insert(handle._connections, connection)
+        return connection
+    end
+    local selector = button(row, { Name = "FloatingBallSwitch", Position = UDim2.new(0, 20, 0.5, -13),
+        Size = UDim2.fromOffset(78, 26), ZIndex = row.ZIndex + 10 })
+    label(selector, "快捷球", 10, UDim2.new(), UDim2.fromOffset(39, 26), COLORS.Secondary)
+    local track = create("Frame", { Position = UDim2.fromOffset(43, 5), Size = UDim2.fromOffset(28, 16),
+        BackgroundColor3 = COLORS.Track }, selector)
+    corner(track, 16)
+    local knob = create("Frame", { Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(12, 12),
+        BackgroundColor3 = COLORS.White }, track)
+    corner(knob, 12)
+    local shifted = {}
+    for _, child in ipairs(row:GetChildren()) do
+        if child:IsA("TextLabel") then
+            shifted[child] = { child.Position, child.Size }
+            child.Position = UDim2.new(child.Position.X.Scale, child.Position.X.Offset + 88, child.Position.Y.Scale, child.Position.Y.Offset)
+            child.Size = UDim2.new(child.Size.X.Scale, child.Size.X.Offset - 88, child.Size.Y.Scale, child.Size.Y.Offset)
+        end
+    end
+    local ball = button(screen, { Name = "FloatingBall", AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(25, 25), Visible = false,
+        BackgroundTransparency = 0, BackgroundColor3 = COLORS.White, Text = handle.Title,
+        TextScaled = true, TextWrapped = true, TextColor3 = COLORS.Text, ZIndex = 75, Active = true })
+    corner(ball, 100)
+    stroke(ball, COLORS.Line, 0.15)
+    create("UITextSizeConstraint", { MinTextSize = 5, MaxTextSize = 12 }, ball)
+    handle.Button, handle.Switch = ball, selector
+    function handle:_refresh()
+        if self._destroyed or ui._destroyed then return end
+        local active = isToggle and source:GetValue() or self._flashing == true
+        ball.BackgroundColor3 = active and COLORS.Blue or COLORS.White
+        ball.TextColor3 = active and COLORS.White or COLORS.Text
+        track.BackgroundColor3 = self.Enabled and COLORS.Blue or COLORS.Track
+        knob.Position = UDim2.fromOffset(self.Enabled and 14 or 2, 2)
+    end
+    function handle:_fit()
+        if self._destroyed or ui._destroyed then return end
+        local viewport = ui:_viewport()
+        if viewport.X < 1 or viewport.Y < 1 then return end
+        local width, height = math.min(self.Width, viewport.X), math.min(self.Height, viewport.Y)
+        ball.Size = UDim2.fromOffset(width, height)
+        ball.Position = UDim2.fromOffset(
+            math.clamp(self._center.X * viewport.X, width / 2, viewport.X - width / 2),
+            math.clamp(self._center.Y * viewport.Y, height / 2, viewport.Y - height / 2))
+    end
+    function handle:SetSize(width, height)
+        if self._destroyed or ui._destroyed then return self end
+        self.Width = math.floor(number(tonumber(width), self.Width, 16, 256) + 0.5)
+        self.Height = math.floor(number(tonumber(height), self.Height, 16, 256) + 0.5)
+        self:_fit()
+        return self
+    end
+    function handle:SetTitle(value)
+        if self._destroyed or ui._destroyed then return self end
+        self.Title = tostring(value); ball.Text = self.Title
+        return self
+    end
+    function handle:_cancelDrag()
+        if ui._pointer and ui._pointer.owner == self then ui._pointer = nil end
+    end
+    function handle:SetEnabled(value)
+        if self._destroyed or ui._destroyed then return self end
+        self.Enabled = value == true
+        ball.Visible = self.Enabled
+        self:_cancelDrag()
+        if not self.Enabled and ui._dropdownOwner == self then ui:_closeDropdown() end
+        self:_refresh(); self:_fit()
+        return self
+    end
+    function handle:SetLocked(value)
+        if self._destroyed or ui._destroyed then return self end
+        self.Locked = value == true
+        self:_cancelDrag()
+        if self.LockButton then self.LockButton.Text = self.Locked and "解除锁定" or "锁定" end
+        return self
+    end
+    function handle:_pulse()
+        if self._destroyed or ui._destroyed then return end
+        local token = {}
+        self._flashToken, self._flashing = token, true
+        self:_refresh()
+        ui:_later(0.25, function()
+            if self._destroyed or self._flashToken ~= token then return end
+            self._flashing = false; self:_refresh()
+        end)
+    end
+    function handle:Activate()
+        if self._destroyed or ui._destroyed or not self.Enabled or not self.Locked or ui._dialog then return end
+        if isToggle then
+            if not source.Disabled and not source._destroyed then source:SetValue(not source:GetValue()) end
+        elseif source.Active ~= false and source.Interactable ~= false and source.Visible ~= false then
+            self._activate()
+        end
+    end
+    function handle:OpenMenu()
+        if self._destroyed or ui._destroyed or not self.Enabled or ui._dialog then return end
+        local wasOpen = ui._dropdownOwner == self
+        ui:_closeDropdown(); self:_cancelDrag()
+        if wasOpen then return end
+        local viewport, width, height = ui:_viewport(), 208, 164
+        local x = math.clamp(ball.Position.X.Offset + ball.Size.X.Offset / 2 + 6, 0, math.max(0, viewport.X - width))
+        local y = math.clamp(ball.Position.Y.Offset - ball.Size.Y.Offset / 2, 0, math.max(0, viewport.Y - height))
+        local overlay = button(screen, { Name = "FloatingBallOverlay", Size = UDim2.fromScale(1, 1), ZIndex = 80, Active = true })
+        local menu = create("Frame", { Name = "FloatingBallMenu", Position = UDim2.fromOffset(x, y),
+            Size = UDim2.fromOffset(width, height), BackgroundColor3 = COLORS.White, Active = true, ZIndex = 85 }, overlay)
+        corner(menu, 10); stroke(menu, COLORS.Line, 0.15)
+        self.Menu = menu
+        ui._dropdown, ui._dropdownOwner = overlay, self
+        local menuConnections = {}
+        local function menuListen(signal, callback)
+            table.insert(menuConnections, ui:_listen(signal, callback))
+        end
+        ui._dropdownCleanup = function()
+            self.Menu, self.LockButton = nil, nil
+            for _, connection in ipairs(menuConnections) do connection:Disconnect(); ui._connections[connection] = nil end
+        end
+        menuListen(overlay.Activated, function() ui:_closeDropdown() end)
+        local lock = button(menu, { Name = "Lock", Text = self.Locked and "解除锁定" or "锁定",
+            Position = UDim2.fromOffset(8, 7), Size = UDim2.fromOffset(93, 29),
+            BackgroundColor3 = COLORS.Hover, BackgroundTransparency = 0 })
+        local closeBall = button(menu, { Name = "CloseBall", Text = "关闭快捷球", Position = UDim2.fromOffset(107, 7),
+            Size = UDim2.fromOffset(93, 29), BackgroundColor3 = COLORS.Hover, BackgroundTransparency = 0 })
+        corner(lock, 6); corner(closeBall, 6); self.LockButton = lock
+        label(menu, "宽 × 高（16–256）", 10, UDim2.fromOffset(10, 42), UDim2.fromOffset(188, 20), COLORS.Secondary)
+        local function field(name, value, x)
+            local box = create("TextBox", { Name = name, Text = tostring(value), ClearTextOnFocus = false,
+                Font = FONT, TextSize = 12, TextColor3 = COLORS.Text, BackgroundColor3 = COLORS.Hover,
+                Position = UDim2.fromOffset(x, 66), Size = UDim2.fromOffset(85, 29) }, menu)
+            corner(box, 6)
+            return box
+        end
+        local widthBox, heightBox = field("Width", self.Width, 10), field("Height", self.Height, 113)
+        label(menu, "×", 12, UDim2.fromOffset(98, 66), UDim2.fromOffset(12, 29), COLORS.Secondary)
+        local function applySize()
+            self:SetSize(widthBox.Text, heightBox.Text)
+            widthBox.Text, heightBox.Text = tostring(self.Width), tostring(self.Height)
+        end
+        local apply = button(menu, { Name = "ApplySize", Text = "应用大小", Position = UDim2.fromOffset(10, 104),
+            Size = UDim2.fromOffset(188, 26), BackgroundColor3 = COLORS.Blue, BackgroundTransparency = 0, TextColor3 = COLORS.White })
+        corner(apply, 6)
+        label(menu, "未锁定：长按拖动 · 锁定：点击执行", 9, UDim2.fromOffset(10, 136), UDim2.fromOffset(188, 20), COLORS.Secondary)
+        menuListen(lock.Activated, function() self:SetLocked(not self.Locked) end)
+        menuListen(closeBall.Activated, function() self:SetEnabled(false) end)
+        menuListen(widthBox.FocusLost, applySize); menuListen(heightBox.FocusLost, applySize)
+        menuListen(apply.Activated, applySize)
+    end
+    function handle:Destroy()
+        if self._destroyed then return end
+        self:_cancelDrag()
+        if ui._dropdownOwner == self then ui:_closeDropdown() end
+        self._destroyed, self.Enabled = true, false
+        for _, connection in ipairs(self._connections) do connection:Disconnect(); ui._connections[connection] = nil end
+        self._connections = {}
+        ball:Destroy(); selector:Destroy()
+        for child, original in pairs(shifted) do
+            if child.Parent then child.Position, child.Size = original[1], original[2] end
+        end
+        ui._floatingBalls[source] = nil
+        if isToggle then source.FloatingBall = nil end
+    end
+    listen(selector.Activated, function() handle:SetEnabled(not handle.Enabled) end)
+    listen(ball.Activated, function() handle:Activate() end)
+    listen(ball.MouseButton2Click, function() handle:OpenMenu() end)
+    listen(ball.InputBegan, function(input)
+        if not handle.Enabled or handle.Locked or ui._dialog or ui._dropdown then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local start = Vector2.new(input.Position.X, input.Position.Y)
+        local center = Vector2.new(ball.Position.X.Offset, ball.Position.Y.Offset)
+        local pointer = { input = input, owner = handle, ready = false }
+        local latest = input.Position
+        pointer.move = function(position)
+            latest = position
+            if not pointer.ready then return end
+            local viewport = ui:_viewport()
+            if viewport.X < 1 or viewport.Y < 1 then return end
+            local nextCenter = center + Vector2.new(position.X, position.Y) - start
+            local half = Vector2.new(ball.Size.X.Offset, ball.Size.Y.Offset) / 2
+            handle._center = Vector2.new(math.clamp(nextCenter.X, half.X, viewport.X - half.X) / viewport.X,
+                math.clamp(nextCenter.Y, half.Y, viewport.Y - half.Y) / viewport.Y)
+            handle:_fit()
+        end
+        ui._pointer = pointer
+        ui:_later(0.2, function()
+            if ui._pointer == pointer then pointer.ready = true; pointer.move(latest) end
+        end)
+    end)
+    listen(row.Destroying, function() handle:Destroy() end)
+    if not isToggle then listen(source.Destroying, function() handle:Destroy() end) end
+    ui._floatingBalls[source] = handle
+    if isToggle then source.FloatingBall = handle end
+    handle:SetSize(options.Width or 25, options.Height or 25)
+    handle:SetEnabled(options.Enabled == true)
+    return handle
+end
+
 function Section:AddButton(options)
     options = options or {}
     local ui = self.Window
@@ -1692,10 +1913,22 @@ function Section:AddButton(options)
     })
     corner(control, 9)
     if options.Primary then ui:_bindAccent(control, "BackgroundColor3") else stroke(control, COLORS.Line, 0.4) end
-    ui:_listen(control.Activated, function() ui:_callback(options.Callback) end)
+    local function activate()
+        if control.Active == false or control.Interactable == false then return end
+        local ball = ui:GetFloatingBall(control)
+        if ball then ball:_pulse() end
+        ui:_callback(options.Callback)
+    end
+    ui:_listen(control.Activated, activate)
     ui:_listen(control.MouseEnter, function() ui:_animate(control, { BackgroundTransparency = options.Primary and 0.15 or 0 }) end)
     ui:_listen(control.MouseLeave, function() ui:_animate(control, { BackgroundTransparency = options.Primary and 0 or 0.2 }) end)
-    return self:_register(options, control)
+    self:_register(options, control)
+    if options.FloatingBall then
+        local ball = ui:_attachFloatingBall(control, row, options.Title or options.Text or "执行",
+            type(options.FloatingBall) == "table" and options.FloatingBall or {}, false)
+        ball._activate = activate
+    end
+    return control
 end
 
 local function finiteNumber(value, fallback)
@@ -2210,6 +2443,9 @@ function Window:Destroy(skipGui)
     if self._destroyed or self._destroying then return end
     self._destroying = true
     if self._dialog then self._dialog:Close("destroyed") end
+    local balls = {}
+    for _, ball in pairs(self._floatingBalls) do table.insert(balls, ball) end
+    for _, ball in ipairs(balls) do ball:Destroy() end
     self:_releaseKeyHolds()
     self._destroyed = true
     self:_syncMouse()

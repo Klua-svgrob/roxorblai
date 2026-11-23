@@ -11,7 +11,7 @@ local chunk, compileError = loadstring(source, "AURA.UI")
 assert(chunk, compileError)
 local UI = chunk()
 local patchVersion = type(UI) == "table" and type(UI.Version) == "string" and tonumber(UI.Version:match("^1%.4%.(%d+)$"))
-assert(patchVersion and patchVersion >= 5, "此示例需要 AURA 1.4.5+，请更新本地或远程 ui.lua")
+assert(patchVersion and patchVersion >= 6, "此示例需要 AURA 1.4.6+，请更新本地或远程 ui.lua")
 
 local window = UI:CreateWindow({
     Id = "aura-demo", Title = "aura", Subtitle = "为专注留一点空间",
@@ -23,7 +23,7 @@ local window = UI:CreateWindow({
 local main = window:CreateTab({ Id = "main", Title = "概览", Icon = "grid", Description = "你的空间，由你定义。" })
 main:AddHero()
 local appearance = main:AddSection({ Title = "外观偏好", Description = "按照你的习惯，调整这个空间。" })
-local focus = appearance:AddToggle({ Id = "focus", Title = "专注模式", Default = false })
+local focus = appearance:AddToggle({ Id = "focus", Title = "专注模式", Default = false, FloatingBall = true })
 focus:AddKeyPicker({ Id = "focus-key", Default = "None", Mode = "Toggle" })
 appearance:AddToggle({ Id = "glass", Title = "毛玻璃", Description = "让背景柔和地融入界面", Default = true,
     Callback = function(value) window:SetGlass(value) end })
@@ -93,7 +93,7 @@ features:AddToggle({ Id = "feature-scroll", Title = "滚动显示", Default = fa
 local about = window:CreateTab({ Id = "about", Title = "关于", Icon = "info", Description = "简单一些，也可以很好。" })
 about:AddHero({ Title = "轻一点，\n刚刚好。", Description = "把注意力，留给真正重要的事。" })
 local actions = about:AddSection({ Title = "通知示例" })
-actions:AddButton({ Id = "show-notice", Title = "显示通知", Text = "试试看", Primary = true,
+actions:AddButton({ Id = "show-notice", Title = "显示通知", Text = "试试看", Primary = true, FloatingBall = true,
     Callback = function()
         window:Notify({ Title = "已准备就绪", Content = "这是可暂停、可关闭的通知。", Type = "success", Duration = 5 })
     end })

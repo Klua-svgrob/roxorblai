@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, configuration snapshots, key bindings, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.5**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, configuration snapshots, key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.6**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -27,7 +27,7 @@ window:Notify({ Title = "Ready", Content = "Everything is set up.", Type = "succ
 
 To pin a version, replace `main` with a commit SHA or tag. If you fork the repository or move `ui.lua`, update the owner, repository, branch, or file path in the URL. A GitHub `blob` page returns HTML; use its Raw URL instead.
 
-See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery and configuration snapshots. See [CONTROLS.md](CONTROLS.md) for the new 1.4.5 controls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.5+.
+See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery, configuration snapshots and floating shortcuts. See [CONTROLS.md](CONTROLS.md) for controls, floating shortcut balls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.6+.
 
 ## Library
 
@@ -36,7 +36,7 @@ See [ui.example.lua](ui.example.lua) for a four-tab example including a componen
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.5"` |
+| `UI.Version` | `"1.4.6"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
