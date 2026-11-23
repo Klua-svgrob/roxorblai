@@ -739,9 +739,13 @@ function Window:_syncNotificationClock()
         if type(dt) ~= "number" or dt ~= dt or dt <= 0 then return end
         for _, notice in ipairs(table.clone(self._notifications)) do
             if notice.Status == "active" and notice.Duration > 0 and not (notice.PauseOnHover and notice.Hovered) then
-                notice.Remaining = math.max(0, notice.Remaining - dt)
-                notice._progress.Size = UDim2.fromScale(notice.Remaining / notice.Duration, 1)
-                if notice.Remaining <= 0 then notice:Dismiss("timeout") end
+                if not notice.Frame or not notice.Frame.Parent or not notice._progress or not notice._progress.Parent then
+                    notice:Dismiss("invalid_visual")
+                else
+                    notice.Remaining = math.max(0, notice.Remaining - dt)
+                    notice._progress.Size = UDim2.fromScale(notice.Remaining / notice.Duration, 1)
+                    if notice.Remaining <= 0 then notice:Dismiss("timeout") end
+                end
             end
         end
     end)
@@ -751,9 +755,19 @@ function Window:_pumpNotifications()
     if self._destroyed or self._clearingNotifications then return end
     while #self._notificationQueue > 0 and #self._notifications < self:_notificationCapacity() do
         local notice = table.remove(self._notificationQueue, 1)
-        notice.Status = "active"
-        table.insert(self._notifications, notice)
-        self:_renderNotification(notice)
+        -- Rendering may yield in native text measurement. Publish only a complete visual.
+        notice.Status = "rendering"
+        local ok, message = pcall(self._renderNotification, self, notice)
+        if ok and not self._destroyed and notice.Status == "rendering" then
+            notice.Status = "active"
+            table.insert(self._notifications, notice)
+        else
+            local failed = not ok and notice.Status ~= "closed"
+            notice.Status = "closed"
+            self:_dropNotificationVisual(notice)
+            if self._notificationMap[notice.Id] == notice then self._notificationMap[notice.Id] = nil end
+            if failed then warn("[AURA notification] " .. tostring(message)) end
+        end
     end
     self:_layoutNotifications()
     self:_syncNotificationClock()
@@ -1404,16 +1418,41 @@ function Section:AddDropdown(options)
     corner(field, 9); stroke(field, COLORS.Line, 0.25)
     local text = label(field, "", 11, UDim2.fromOffset(12, 0), UDim2.new(1, -43, 1, 0), COLORS.Secondary)
     icon(field, "chevron", COLORS.Muted, UDim2.new(1, -28, 0.5, -10))
-    local control = { Value = options.Default or options.Values[1] }
-    function control:SetValue(value, silent)
-        if ui._destroyed or not table.find(options.Values, value) then return end
-        self.Value = value; text.Text = tostring(value)
-        if not silent then ui:_callback(options.Callback, value) end
+    local multi = options.Multi == true
+    local control = { Value = multi and {} or options.Default or options.Values[1] }
+    local items = {}
+    local function selected(value)
+        return multi and table.find(control.Value, value) ~= nil or not multi and control.Value == value
     end
-    function control:GetValue() return self.Value end
+    local function refresh()
+        text.Text = multi and (#control.Value == 0 and "未选择" or table.concat(control.Value, "、")) or tostring(control.Value)
+        for value, item in pairs(items) do
+            item.BackgroundTransparency = selected(value) and 0.15 or 1
+            item.TextColor3 = selected(value) and ui.Accent or COLORS.Secondary
+            item.Text = (multi and (selected(value) and "✓ " or "   ") or "") .. tostring(value)
+        end
+    end
+    function control:SetValue(value, silent)
+        if ui._destroyed then return end
+        if multi then
+            if type(value) ~= "table" then return end
+            local values = {}
+            for _, option in ipairs(options.Values) do
+                if table.find(value, option) then values[#values + 1] = option end
+            end
+            self.Value = values
+        else
+            if not table.find(options.Values, value) then return end
+            self.Value = value
+        end
+        refresh()
+        if not silent then ui:_callback(options.Callback, multi and table.clone(self.Value) or self.Value) end
+    end
+    function control:GetValue() return multi and table.clone(self.Value) or self.Value end
     ui:_listen(field.Activated, function()
         local same = ui._dropdownOwner == control
         ui:_closeDropdown()
+        items = {}
         if same then return end
         local overlay = button(screen, { Size = UDim2.fromScale(1, 1), ZIndex = 80 })
         ui._dropdown, ui._dropdownOwner = overlay, control
@@ -1441,10 +1480,22 @@ function Section:AddDropdown(options)
                 TextColor3 = value == control.Value and ui.Accent or COLORS.Secondary, ZIndex = 86,
             })
             corner(item, 7)
-            ui:_listen(item.Activated, function() control:SetValue(value); ui:_closeDropdown() end)
+            items[value] = item
+            ui:_listen(item.Activated, function()
+                if multi then
+                    local values = control:GetValue()
+                    local index = table.find(values, value)
+                    if index then table.remove(values, index) else values[#values + 1] = value end
+                    control:SetValue(values)
+                else
+                    control:SetValue(value)
+                    ui:_closeDropdown()
+                end
+            end)
         end
+        refresh()
     end)
-    control:SetValue(control.Value, true)
+    control:SetValue(multi and (options.Default or {}) or control.Value, true)
     return self:_register(options, control)
 end
 
