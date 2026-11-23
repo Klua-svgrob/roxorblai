@@ -1708,7 +1708,7 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
         table.insert(handle._connections, connection)
         return connection
     end
-    local selector = button(row, { Name = "FloatingBallSwitch", Position = UDim2.new(0, 20, 0.5, -13),
+    local selector = button(row, { Name = "FloatingBallSwitch", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
         Size = UDim2.fromOffset(78, 26), ZIndex = row.ZIndex + 10 })
     label(selector, "快捷球", 10, UDim2.new(), UDim2.fromOffset(39, 26), COLORS.Secondary)
     local track = create("Frame", { Position = UDim2.fromOffset(43, 5), Size = UDim2.fromOffset(28, 16),
@@ -1717,12 +1717,11 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     local knob = create("Frame", { Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(12, 12),
         BackgroundColor3 = COLORS.White }, track)
     corner(knob, 12)
-    local shifted = {}
+    local resized = {}
     for _, child in ipairs(row:GetChildren()) do
         if child:IsA("TextLabel") then
-            shifted[child] = { child.Position, child.Size }
-            child.Position = UDim2.new(child.Position.X.Scale, child.Position.X.Offset + 88, child.Position.Y.Scale, child.Position.Y.Offset)
-            child.Size = UDim2.new(child.Size.X.Scale, child.Size.X.Offset - 88, child.Size.Y.Scale, child.Size.Y.Offset)
+            resized[child] = child.Size
+            child.Size = UDim2.new(0.5, -69, child.Size.Y.Scale, child.Size.Y.Offset)
         end
     end
     local ball = button(screen, { Name = "FloatingBall", AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1860,8 +1859,8 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
         for _, connection in ipairs(self._connections) do connection:Disconnect(); ui._connections[connection] = nil end
         self._connections = {}
         ball:Destroy(); selector:Destroy()
-        for child, original in pairs(shifted) do
-            if child.Parent then child.Position, child.Size = original[1], original[2] end
+        for child, original in pairs(resized) do
+            if child.Parent then child.Size = original end
         end
         ui._floatingBalls[source] = nil
         if isToggle then source.FloatingBall = nil end
