@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, configuration snapshots, key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.6**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.7**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -22,12 +22,14 @@ section:AddToggle({
     Callback = function(value) print("Enabled:", value) end,
 })
 
+window:CreateSettingsTab() -- config files: robluauui/My Script/<name>.json
+
 window:Notify({ Title = "Ready", Content = "Everything is set up.", Type = "success" })
 ```
 
 To pin a version, replace `main` with a commit SHA or tag. If you fork the repository or move `ui.lua`, update the owner, repository, branch, or file path in the URL. A GitHub `blob` page returns HTML; use its Raw URL instead.
 
-See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery, configuration snapshots and floating shortcuts. See [CONTROLS.md](CONTROLS.md) for controls, floating shortcut balls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.6+.
+See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery, configuration snapshots and floating shortcuts. See [CONTROLS.md](CONTROLS.md) for controls, floating shortcut balls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.7+.
 
 ## Library
 
@@ -36,7 +38,7 @@ See [ui.example.lua](ui.example.lua) for a four-tab example including a componen
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.6"` |
+| `UI.Version` | `"1.4.7"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -58,6 +60,7 @@ Loading another copy of the library preserves existing windows. Different window
 | `Scale` | `1` | Scale multiplier, from 0.5 to 1.5; still limited by viewport size |
 | `NotificationLimit` | `3` | Visible notification limit, from 1 to 3; reduced on short screens |
 | `NotificationDuration` | `4` | Default duration in seconds; 0 keeps a notification open until dismissed |
+| `Configs` | `true` | Automatically adds a config section to Settings tabs; false opts out |
 | `FeatureListEnabled` | `false` | Show enabled toggle features as a separate overlay |
 | `OnDestroy` | `nil` | Cleanup callback, invoked once after the window is destroyed |
 
@@ -68,6 +71,10 @@ The library creates and manages its own `BlurEffect`. Destroying a window remove
 | Method | Behavior |
 |---|---|
 | `CreateTab({ Id, Title, Description, Icon })` | Creates a tab; supported icons: `grid`, `settings`, `info` |
+| `CreateSettingsTab(options)` / `AddConfigSection(tab)` | Adds title-scoped save/load/list/delete/reset controls; existing Settings tabs receive these automatically |
+| `GetConfigFolder()` | Returns `robluauui/<initial window title>` within executor workspace |
+| `SaveConfig(name)` / `LoadConfig(name, silent)` / `DeleteConfig(name)` | Returns success and the path, import errors, or failure message |
+| `ListConfigs()` | Returns available profile names, or nil and a failure message |
 | `SelectTab(tabOrId)` | Selects a tab by object or ID |
 | `GetTab(id)` / `GetControl(id)` | Looks up a registered tab or control |
 | `SetTitle(text)` | Updates the brand title and restore button |
@@ -269,14 +276,20 @@ Top positions reserve space using `GuiService:GetGuiInset()` and `GuiService.Top
 
 Overflow remains manually scrollable. Automatic scrolling moves vertically at corners and horizontally at center positions, reverses at the ends, and pauses while hovered. Its Heartbeat listener is only active when scrolling is enabled and content overflows.
 
-## EMDEN integration
+## File profiles and linked floating shortcuts
 
-EMDEN uses this library directly for its seven tabs, controls, visual color picker, notifications, mouse unlocking, and enabled-feature settings. Closing its window also unloads its runtime. Saved-location refresh removes entire old button rows.
+Settings tabs (ID settings, title Settings or a Chinese title containing 设置) automatically receive one config section. Use window:CreateSettingsTab() when building a new script, or window:AddConfigSection(tab) with any other page. The manager creates robluauui and a child folder named for the initial UI title, then provides named save/overwrite, load, refresh, delete and reset actions. Profiles remain local and load only when requested. Changing the display title later keeps the original folder. Invalid path characters in titles are reversibly escaped; valid Chinese titles remain readable.
 
-EMDEN first checks for a local executor file in the packaged subfolder or at the root-level `ui.lua`, then falls back to the repository's Raw URL. It accepts compatible AURA 1.4.x releases. New component APIs require **1.4.5**; publish the updated package separately if you want the remote loader to use them.
+Snapshots include controls, key names/modes, and floating ball visibility, lock, size and normalized position. Controls need stable IDs to persist. Saved files also identify their UI title, so an imported file belonging to another title is rejected. Executor isfolder/makefolder/isfile/readfile/writefile/listfiles APIs are required; delete additionally uses delfile.
+
+Toggle AddKeyPicker and standalone AddKeybind automatically provide a disabled floating ball switch. Existing explicit balls are reused. Set FloatingBall=false on the toggle or picker to opt out. Both inputs operate the same Toggle/Hold state: a locked Hold ball activates on press and releases on mouse/touch release, focus loss, hiding or unlocking. Ball layout is included in config snapshots; Hold bindings never load as a held key.
+
+## EMDEN and XGS integration
+
+EMDEN and XGS use this library under gethui(). Their existing settings tabs receive the new config section without changes to game-specific scripts. The local library is checked before the remote URL; publish the updated library separately to update remote-only loaders.
 
 ## Validation
 
-Run `python ui-checks/run_checks.py` to compile the library/example and exercise the native-member-checked offline harness: 1,749 assertions cover existing controls, expanded controls, notifications, keys, mouse restoration, config snapshots, dialogs, the example and cleanup. EMDEN passes 751 integration assertions and the home-defense script passes 89 feature assertions using this updated UI source.
+Run `python ui-checks/run_checks.py` to compile the library/example and exercise the native-member-checked offline harness, including title-scoped file profiles and shared key/ball Toggle/Hold behavior. EMDEN and XGS integration checks also pass with this library.
 
 These checks use mocked Roblox services and a local replacement for the network loader. No upload was performed. Live Roblox rendering, executor compatibility, text layout and game cursor scripts require in-game verification.

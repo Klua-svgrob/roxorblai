@@ -11,7 +11,7 @@ local chunk, compileError = loadstring(source, "AURA.UI")
 assert(chunk, compileError)
 local UI = chunk()
 local patchVersion = type(UI) == "table" and type(UI.Version) == "string" and tonumber(UI.Version:match("^1%.4%.(%d+)$"))
-assert(patchVersion and patchVersion >= 6, "此示例需要 AURA 1.4.6+，请更新本地或远程 ui.lua")
+assert(patchVersion and patchVersion >= 7, "此示例需要 AURA 1.4.7+，请更新本地或远程 ui.lua")
 
 local window = UI:CreateWindow({
     Id = "aura-demo", Title = "aura", Subtitle = "为专注留一点空间",
@@ -23,7 +23,7 @@ local window = UI:CreateWindow({
 local main = window:CreateTab({ Id = "main", Title = "概览", Icon = "grid", Description = "你的空间，由你定义。" })
 main:AddHero()
 local appearance = main:AddSection({ Title = "外观偏好", Description = "按照你的习惯，调整这个空间。" })
-local focus = appearance:AddToggle({ Id = "focus", Title = "专注模式", Default = false, FloatingBall = true })
+local focus = appearance:AddToggle({ Id = "focus", Title = "专注模式", Default = false })
 focus:AddKeyPicker({ Id = "focus-key", Default = "None", Mode = "Toggle" })
 appearance:AddToggle({ Id = "glass", Title = "毛玻璃", Description = "让背景柔和地融入界面", Default = true,
     Callback = function(value) window:SetGlass(value) end })
@@ -52,7 +52,7 @@ choices:AddButtonGroup({ Id = "demo-list-actions", Title = "列表操作", Butto
     { Id = "clear", Text = "清空选择", Callback = function() list:SetValue({}) end },
 } })
 local config = components:AddSection({ Title = "配置快照", Collapsible = true })
-config:AddParagraph({ Title = "保存与恢复", Content = "导出返回普通Lua表，可自行用HttpService转JSON保存。本例只保存在内存中。" })
+config:AddParagraph({ Title = "保存与恢复", Content = "导出返回普通Lua表，可自行用HttpService转JSON保存。此处演示内存快照，设置页另有按UI标题分目录的文件配置。" })
 local snapshot
 config:AddButtonGroup({ Id = "demo-config-actions", Title = "配置操作", Buttons = {
     { Id = "save", Text = "保存快照", Primary = true, Callback = function()

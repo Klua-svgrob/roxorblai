@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.6" }
+local Library = { Version = "1.4.7" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -204,6 +204,7 @@ local Window = {
     _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
     OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {}, _floatingBalls = {},
+    _configTitle = tostring(options.Title or "aura"), ConfigsEnabled = options.Configs ~= false,
     FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
@@ -1001,7 +1002,11 @@ function Window:_addKeyPicker(toggle, row, options)
     picker:_refresh()
     if mode == "Hold" and toggle:GetValue() then toggle:SetValue(false) end
     table.insert(self._keyPickers, picker)
+    picker._initialBinding = { Key = initial, Mode = mode }
     toggle.KeyPicker = picker
+    if options.FloatingBall ~= false and not toggle._floatingBallOptOut and toggle.AddFloatingBall and not toggle.FloatingBall then
+        toggle:AddFloatingBall(type(options.FloatingBall) == "table" and options.FloatingBall or {})
+    end
     if options.Id ~= nil then
         self.Controls[tostring(options.Id)] = picker
         self._defaults[tostring(options.Id)] = { Key = initial, Mode = mode }
@@ -1157,6 +1162,9 @@ function Window:CreateTab(options)
         if self._selectedTab ~= tab then self:_animate(navButton, { BackgroundTransparency = 1 }) end
     end)
     if #self.Tabs == 1 then self:SelectTab(tab) end
+    if self.ConfigsEnabled and (tab.Id:lower() == "settings" or tab.Title:lower() == "settings" or tab.Title:find("设置", 1, true)) then
+        self:AddConfigSection(tab)
+    end
     return tab
 end
 
@@ -1314,7 +1322,7 @@ function Section:AddToggle(options)
         Size = UDim2.fromOffset(17, 17), BackgroundColor3 = COLORS.White,
     }, track)
     corner(knob, 30)
-    local control = { Value = options.Default == true, Frame = row }
+    local control = { Value = options.Default == true, Frame = row, _floatingBallOptOut = options.FloatingBall == false }
     function control:SetValue(value, silent)
         if ui._destroyed then return end
         self.Value = value == true
@@ -1511,7 +1519,7 @@ end
 
 function Section:AddDropdown(options)
     options = options or {}
-    assert(type(options.Values) == "table" and #options.Values > 0, "Dropdown requires Values")
+    assert(type(options.Values) == "table" and (#options.Values > 0 or options.AllowEmpty == true), "Dropdown requires Values")
     local ui = self.Window
     local row = self:_row(options, 66)
     local field = button(row, {
@@ -1767,6 +1775,7 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     end
     function handle:SetEnabled(value)
         if self._destroyed or ui._destroyed then return self end
+        if not value then self:_releasePress() end
         self.Enabled = value == true
         ball.Visible = self.Enabled
         self:_cancelDrag()
@@ -1774,8 +1783,15 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
         self:_refresh(); self:_fit()
         return self
     end
+    function handle:_releasePress()
+        if self._pressInput then
+            self._pressInput = nil
+            if source.KeyPicker then source.KeyPicker:_release() end
+        end
+    end
     function handle:SetLocked(value)
         if self._destroyed or ui._destroyed then return self end
+        self:_releasePress()
         self.Locked = value == true
         self:_cancelDrag()
         if self.LockButton then self.LockButton.Text = self.Locked and "解除锁定" or "锁定" end
@@ -1794,7 +1810,12 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     function handle:Activate()
         if self._destroyed or ui._destroyed or not self.Enabled or not self.Locked or ui._dialog then return end
         if isToggle then
-            if not source.Disabled and not source._destroyed then source:SetValue(not source:GetValue()) end
+            if not source.Disabled and not source._destroyed then
+                local picker = source.KeyPicker
+                if picker then
+                    if picker:GetMode() == "Toggle" then picker:_begin(); picker:_release() end
+                else source:SetValue(not source:GetValue()) end
+            end
         elseif source.Active ~= false and source.Interactable ~= false and source.Visible ~= false then
             self._activate()
         end
@@ -1853,6 +1874,7 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     end
     function handle:Destroy()
         if self._destroyed then return end
+        self:_releasePress()
         self:_cancelDrag()
         if ui._dropdownOwner == self then ui:_closeDropdown() end
         self._destroyed, self.Enabled = true, false
@@ -1863,14 +1885,31 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
             if child.Parent then child.Size = original end
         end
         ui._floatingBalls[source] = nil
-        if isToggle then source.FloatingBall = nil end
+        if isToggle then
+            source.FloatingBall = nil
+            if source.KeyPicker and ui._floatingBalls[source.KeyPicker] == self then
+                ui._floatingBalls[source.KeyPicker], source.KeyPicker.FloatingBall = nil, nil
+            end
+        end
     end
     listen(selector.Activated, function() handle:SetEnabled(not handle.Enabled) end)
     listen(ball.Activated, function() handle:Activate() end)
     listen(ball.MouseButton2Click, function() handle:OpenMenu() end)
+    listen(UserInputService.InputEnded, function(input)
+        if handle._pressInput and (input == handle._pressInput or input.UserInputType == Enum.UserInputType.MouseButton1
+            and handle._pressInput.UserInputType == Enum.UserInputType.MouseButton1) then handle:_releasePress() end
+    end)
+    listen(UserInputService.WindowFocusReleased, function() handle:_releasePress() end)
     listen(ball.InputBegan, function(input)
-        if not handle.Enabled or handle.Locked or ui._dialog or ui._dropdown then return end
+        if not handle.Enabled or ui._dialog or ui._dropdown then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if handle.Locked then
+            local picker = isToggle and source.KeyPicker
+            if picker and picker:GetMode() == "Hold" and not source.Disabled and not source._destroyed then
+                handle._pressInput = input; picker:_begin()
+            end
+            return
+        end
         local start = Vector2.new(input.Position.X, input.Position.Y)
         local center = Vector2.new(ball.Position.X.Offset, ball.Position.Y.Offset)
         local pointer = { input = input, owner = handle, ready = false }
@@ -1897,6 +1936,7 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     if isToggle then source.FloatingBall = handle end
     handle:SetSize(options.Width or 25, options.Height or 25)
     handle:SetEnabled(options.Enabled == true)
+    handle._initialLayout = { Enabled = handle.Enabled, Locked = handle.Locked, Width = handle.Width, Height = handle.Height }
     return handle
 end
 
@@ -2249,10 +2289,19 @@ function Section:AddKeybind(options)
     local ui, row = self.Window, self:_row(options, 66)
     local proxy = { Value = false }
     function proxy:GetValue() return self.Value end
-    function proxy:SetValue(value) self.Value = value == true; ui:_callback(options.Callback, self.Value) end
+    function proxy:SetValue(value)
+        self.Value = value == true
+        if self.FloatingBall then self.FloatingBall:_refresh() end
+        ui:_callback(options.Callback, self.Value)
+    end
+    function proxy:AddFloatingBall(ballOptions)
+        return ui:_attachFloatingBall(self, row, options.Title or "快捷键", ballOptions, true)
+    end
     local pickerOptions = table.clone(options); pickerOptions.Id, pickerOptions.Callback = nil, options.Changed
     local picker = ui:_addKeyPicker(proxy, row, pickerOptions)
     picker.Button.Position = UDim2.new(1, -22, 0.5, 0)
+    picker.FloatingBall = proxy.FloatingBall
+    if picker.FloatingBall then ui._floatingBalls[picker] = picker.FloatingBall end
     local result = self:_register(options, picker)
     if options.Id then ui._defaults[tostring(options.Id)] = { Key = picker.Value, Mode = picker.Mode } end
     return result
@@ -2282,8 +2331,17 @@ function Window:SetValues(values, silent)
 end
 
 function Window:ExportConfig()
-    local values = {}
+    local values, keybinds, balls = {}, {}, {}
     for id, control in pairs(self.Controls) do
+        if typeof(control) == "Instance" or not control._excludeConfig then
+            local picker = typeof(control) ~= "Instance" and (control.KeyPicker or control.GetMode and control)
+            if picker then keybinds[id] = { Key = picker:GetValue(), Mode = picker:GetMode() } end
+            local ball = self:GetFloatingBall(control)
+            if ball and not ball._destroyed then
+                balls[id] = { Enabled = ball.Enabled, Locked = ball.Locked, Width = ball.Width, Height = ball.Height,
+                    Position = { ball._center.X, ball._center.Y } }
+            end
+        end
         if typeof(control) ~= "Instance" and type(control.GetValue) == "function" and type(control.SetValue) == "function"
             and not control._excludeConfig and not control._destroyed then
             local value = control:GetValue()
@@ -2293,13 +2351,24 @@ function Window:ExportConfig()
             else values[id] = { Type = "Value", Value = type(value) == "table" and table.clone(value) or value } end
         end
     end
-    return { Version = 1, Values = values }
+    return { Version = 1, Values = values, Keybinds = keybinds, FloatingBalls = balls }
 end
 
 function Window:ImportConfig(config, silent)
     assert(type(config) == "table" and config.Version == 1 and type(config.Values) == "table", "Unsupported AURA config")
     local values, modes, nils = {}, {}, {}
     local failed = {}
+    if config.Keybinds ~= nil and type(config.Keybinds) ~= "table" then failed.Keybinds = "Invalid keybinds" end
+    for id, entry in pairs(type(config.Keybinds) == "table" and config.Keybinds or {}) do
+        local control = self.Controls[tostring(id)]
+        local picker = control and typeof(control) ~= "Instance" and not control._excludeConfig
+            and (control.KeyPicker or control.GetMode and control)
+        if picker then
+            if type(entry) == "table" and bindingName(entry.Key) and (entry.Mode == "Toggle" or entry.Mode == "Hold") then
+                picker:SetMode(entry.Mode, true); picker:SetValue(entry.Key, true)
+            else failed[tostring(id)] = "Invalid keybind" end
+        end
+    end
     for id, entry in pairs(config.Values) do
         local control = self.Controls[tostring(id)]
         if control and typeof(control) ~= "Instance" and type(control.GetValue) == "function" and type(control.SetValue) == "function"
@@ -2336,16 +2405,36 @@ function Window:ImportConfig(config, silent)
         local ok, message = pcall(self.Controls[tostring(id)].SetValue, self.Controls[tostring(id)], nil, silent == true)
         if not ok then failed[id] = tostring(message) end
     end
+    if config.FloatingBalls ~= nil and type(config.FloatingBalls) ~= "table" then failed.FloatingBalls = "Invalid floating balls" end
+    for id, entry in pairs(type(config.FloatingBalls) == "table" and config.FloatingBalls or {}) do
+        local ball = self:GetFloatingBall(tostring(id))
+        if ball then
+            local p = type(entry) == "table" and entry.Position
+            if type(entry) == "table" and type(entry.Enabled) == "boolean" and type(entry.Locked) == "boolean"
+                and type(entry.Width) == "number" and finiteNumber(entry.Width) and type(entry.Height) == "number" and finiteNumber(entry.Height)
+                and type(p) == "table" and type(p[1]) == "number" and finiteNumber(p[1]) and type(p[2]) == "number" and finiteNumber(p[2]) then
+                ball._center = Vector2.new(math.clamp(p[1], 0, 1), math.clamp(p[2], 0, 1))
+                ball:SetSize(entry.Width, entry.Height); ball:SetLocked(entry.Locked); ball:SetEnabled(entry.Enabled)
+            else failed[tostring(id) .. ":ball"] = "Invalid floating ball" end
+        end
+    end
     return failed
 end
 
 function Window:ResetValues(silent)
+    for _, picker in ipairs(self._keyPickers) do
+        if picker._initialBinding then
+            picker:SetMode(picker._initialBinding.Mode, true); picker:SetValue(picker._initialBinding.Key, true)
+        end
+    end
     local values = {}
     for id, default in pairs(self._defaults) do
         local control = self.Controls[id]
-        if control and control.GetMode and type(default) == "table" and default.Key then
-            control:SetMode(default.Mode, true); values[id] = default.Key
-        else values[id] = type(default) == "table" and table.clone(default) or default end
+        if control and not control._excludeConfig then
+            if control.GetMode and type(default) == "table" and default.Key then
+                control:SetMode(default.Mode, true); values[id] = default.Key
+            else values[id] = type(default) == "table" and table.clone(default) or default end
+        end
     end
     for id in pairs(values) do
         local control = self.Controls[id]
@@ -2354,12 +2443,159 @@ function Window:ResetValues(silent)
     local failed = self:SetValues(values, silent)
     for id in pairs(self._nilDefaults) do
         local control = self.Controls[id]
-        if control then
+        if control and not control._excludeConfig then
             local ok, message = pcall(control.SetValue, control, nil, silent == true)
             if not ok then failed[id] = tostring(message) end
         end
     end
+    for _, ball in pairs(self._floatingBalls) do
+        local initial = ball._initialLayout
+        if initial then
+            ball._center = Vector2.new(0.5, 0.5)
+            ball:SetSize(initial.Width, initial.Height); ball:SetLocked(initial.Locked); ball:SetEnabled(initial.Enabled)
+        end
+    end
     return failed
+end
+
+-- File profiles are scoped to the title supplied when the window was created.
+local function configSegment(value)
+    local text = tostring(value)
+    text = text:gsub('[\\/:*?"<>|%%\0-\31]', function(char) return string.format("%%%02X", char:byte()) end)
+    text = text:gsub('[%. ]+$', function(tail) return (tail:gsub('.', function(char) return string.format("%%%02X", char:byte()) end)) end)
+    local stem = text:match("^([^%.]+)") or text
+    local upper = stem:upper()
+    if text == "" then text = "%00"
+    elseif upper == "CON" or upper == "PRN" or upper == "AUX" or upper == "NUL" or upper:match("^COM[1-9]$") or upper:match("^LPT[1-9]$") then text = "%5F" .. text end
+    return text
+end
+local function configName(value)
+    assert(type(value) == "string", "请输入配置名称")
+    local name = value:match("^%s*(.-)%s*$"):gsub("%.json$", "")
+    assert(name ~= "" and #name <= 120 and name ~= "." and name ~= ".." and not name:find('[\\/:*?"<>|\0-\31]')
+        and not name:match('[%. ]$'), "配置名称无效，请勿使用路径或特殊字符")
+    assert(configSegment(name) == name, "配置名称不可使用系统保留名称或百分号")
+    return name
+end
+function Window:GetConfigFolder()
+    return "robluauui/" .. configSegment(self._configTitle)
+end
+function Window:_ensureConfigFolder()
+    assert(not self._destroyed, "窗口已关闭")
+    assert(type(isfolder) == "function" and type(makefolder) == "function", "执行器不支持配置文件夹")
+    for _, path in ipairs({ "robluauui", self:GetConfigFolder() }) do
+        if not isfolder(path) then makefolder(path) end
+        assert(isfolder(path), "无法创建配置文件夹：" .. path)
+    end
+    return self:GetConfigFolder()
+end
+function Window:ListConfigs()
+    local ok, result = pcall(function()
+        local folder = self:_ensureConfigFolder()
+        assert(type(listfiles) == "function", "执行器缺少 listfiles")
+        local files = listfiles(folder)
+        assert(type(files) == "table", "读取配置列表失败")
+        local names, seen = {}, {}
+        for _, path in ipairs(files) do
+            if type(path) == "string" then
+                local leaf = path:gsub("\\", "/"):match("([^/]+)%.json$")
+                local valid, name = pcall(configName, leaf)
+                if valid and not seen[name] then seen[name] = true; table.insert(names, name) end
+            end
+        end
+        table.sort(names)
+        return names
+    end)
+    return ok and result or nil, not ok and tostring(result) or nil
+end
+function Window:SaveConfig(name)
+    local ok, result = pcall(function()
+        name = configName(name)
+        local folder = self:_ensureConfigFolder()
+        assert(type(writefile) == "function", "执行器缺少 writefile")
+        local path = folder .. "/" .. name .. ".json"
+        local data = { Format = "AURA.Config", Version = 1, Title = self._configTitle, Config = self:ExportConfig() }
+        local json = game:GetService("HttpService"):JSONEncode(data)
+        writefile(path, json)
+        return path
+    end)
+    return ok, result
+end
+function Window:LoadConfig(name, silent)
+    local ok, result = pcall(function()
+        name = configName(name)
+        local path = self:_ensureConfigFolder() .. "/" .. name .. ".json"
+        assert(type(readfile) == "function" and type(isfile) == "function", "执行器缺少配置读取接口")
+        assert(isfile(path), "找不到该配置")
+        local data = game:GetService("HttpService"):JSONDecode(readfile(path))
+        assert(type(data) == "table" and data.Format == "AURA.Config" and data.Version == 1 and data.Title == self._configTitle,
+            "配置不属于当前 UI 或文件格式无效")
+        return self:ImportConfig(data.Config, silent)
+    end)
+    return ok, result
+end
+function Window:DeleteConfig(name)
+    local ok, result = pcall(function()
+        name = configName(name)
+        local path = self:_ensureConfigFolder() .. "/" .. name .. ".json"
+        assert(type(delfile) == "function" and type(isfile) == "function", "执行器不支持删除配置")
+        assert(isfile(path), "找不到该配置")
+        delfile(path)
+        return path
+    end)
+    return ok, result
+end
+function Window:AddConfigSection(tab)
+    if self.ConfigSection then return self.ConfigSection end
+    assert(tab and tab.Window == self, "配置分类需要属于当前窗口的页面")
+    local ui = self
+    local section = tab:AddSection({ Title = "配置", Description = "按 UI 标题分别保存功能、快捷键和快捷球布局。" })
+    self.ConfigSection = section
+    local name = section:AddInput({ Id = "__aura_config_name", Title = "配置名称", Default = "默认", Placeholder = "输入配置名称" })
+    name._excludeConfig = true
+    local choices = section:AddDropdown({ Id = "__aura_config_list", Title = "已有配置", Values = {}, AllowEmpty = true,
+        Callback = function(value) if value then name:SetValue(value, true) end end })
+    choices._excludeConfig = true
+    section:AddLabel("目录：" .. self:GetConfigFolder())
+    local status = section:AddLabel("配置只保存在执行器工作区")
+    local function refresh()
+        local values, message = ui:ListConfigs()
+        if values then
+            local selected = choices:GetValue()
+            choices:SetValues(values, true)
+            if selected and table.find(values, selected) then choices:SetValue(selected, true) end
+            status.Text = "已找到 " .. #values .. " 个配置"
+        else status.Text = message end
+    end
+    local function result(ok, detail, action)
+        local content = ok and (action .. "完成") or tostring(detail)
+        if ok and type(detail) == "table" and next(detail) then content = "部分选项未能恢复，请检查配置版本。" end
+        status.Text = content
+        ui:Notify({ Title = "配置", Content = content, Type = ok and "success" or "error" })
+    end
+    section:AddButton({ Id = "__aura_config_save", Title = "保存配置", Text = "保存／覆盖", Callback = function()
+        local ok, detail = ui:SaveConfig(name:GetValue()); if ok then refresh() end; result(ok, detail, "保存")
+    end })
+    section:AddButton({ Id = "__aura_config_load", Title = "加载配置", Text = "加载", Callback = function()
+        local ok, detail = ui:LoadConfig(name:GetValue()); result(ok, detail, "加载")
+    end })
+    section:AddButton({ Id = "__aura_config_refresh", Title = "刷新配置列表", Text = "刷新", Callback = refresh })
+    section:AddButton({ Id = "__aura_config_delete", Title = "删除配置", Text = "删除", Callback = function()
+        local ok, detail = ui:DeleteConfig(name:GetValue()); if ok then refresh() end; result(ok, detail, "删除")
+    end })
+    section:AddButton({ Id = "__aura_config_reset", Title = "恢复默认选项", Text = "恢复", Callback = function()
+        result(true, ui:ResetValues(), "恢复默认")
+    end })
+    refresh()
+    return section
+end
+function Window:CreateSettingsTab(options)
+    options = options or {}
+    local existing = self:GetTab(options.Id or "settings")
+    if existing then self:AddConfigSection(existing); return existing end
+    local tab = self:CreateTab({ Id = options.Id or "settings", Title = options.Title or "设置", Icon = "settings" })
+    self:AddConfigSection(tab)
+    return tab
 end
 
 function Window:Dialog(options)

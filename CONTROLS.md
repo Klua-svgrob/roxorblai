@@ -1,4 +1,4 @@
-# AURA 1.4.5 控件与配置
+# AURA 1.4.7 控件与配置
 
 本次保持 gethui 挂载、右Alt显隐和现有1.4.x调用方式。旧AddButton/AddLabel继续返回原生实例；其他控件返回可操作的Lua表。示例见[ui.example.lua](ui.example.lua)。
 
@@ -91,15 +91,26 @@ window:ResetValues(true)
 local values = window:GetValues()
 window:SetValues({enabled=false, speed=50}, true)
 
--- 如需持久化，由调用方选择路径并处理文件权限：
-local json = game:GetService("HttpService"):JSONEncode(config)
+-- 本地文件配置（设置页自动提供同样操作）：
+window:CreateSettingsTab() -- 已有“设置”页时自动添加，无需重复创建
+local ok, path = window:SaveConfig("日常")
+local loaded, failures = window:LoadConfig("日常")
+local names, message = window:ListConfigs()
+window:DeleteConfig("日常")
+print(window:GetConfigFolder()) -- robluauui/<创建窗口时的Title>
 ```
 
 导出包含有Id的可编辑控件和快捷键模式；Color3转RGB数组，空选择使用显式Nil条目。按钮、段落、进度等不参与。GetValues返回当前值映射，保留原生Color3且省略nil；需要跨会话保存时使用ExportConfig。
 
 ImportConfig核对版本、类型、颜色、键名、模式和当前可选值，返回按控件Id列出的错误表，未知Id忽略。数值继续按控件范围/精度处理。Hold快捷键不会恢复为一直按住。ResetValues恢复创建时记录的默认值；动态选项如果已改变，先恢复列表数据，旧默认值才可能重新有效。
 
-默认会调用控件Callback；silent=true仅改UI状态，调用方需同步自身功能状态。配置接口不自动访问磁盘、不上传、不执行配置内容。它是可JSON序列化的值快照，而非自动保存管理器。
+默认会调用控件Callback；silent=true仅改UI状态，调用方需同步自身功能状态。ExportConfig/ImportConfig仍为内存接口；SaveConfig/LoadConfig访问执行器工作区文件，不上传、不执行配置内容，也不自动加载功能状态。
+
+设置页自动增加“配置”分类：配置名称、已有配置列表、保存／覆盖、加载、刷新、删除、恢复默认。识别Id为settings、标题为Settings或中文包含“设置”的页面；其他页面可调用window:AddConfigSection(tab)。新脚本可使用window:CreateSettingsTab()创建，CreateWindow({Configs=false})可关闭自动添加。
+
+配置文件为robluauui/<创建窗口时Title>/<配置名>.json。创建时获取的标题作为固定目录，之后SetTitle只更改显示。普通中文标题直接保留；斜杠等非法路径字符可逆编码，避免简单替换字符造成目录重名。文件内再次校验所属标题；配置名拒绝路径跳转和系统保留名称。保存后已有同名配置会覆写。缺少文件接口或读写失败会在界面显示原因。
+
+有Id的功能、快捷键和快捷球参与保存；自动为控件配对且无独立Id的KeyPicker也会随功能Id保存。快捷球保存显示状态、锁定、宽高和相对屏幕位置。加载Hold配置不会把功能恢复为一直按住。管理界面自身的配置名称、列表不进入配置文件。恢复默认会重置快捷键和快捷球布局，但保留配置管理器输入。
 
 ## 独立悬浮球（快捷球）
 
@@ -131,9 +142,11 @@ ball:SetSize(25, 35)
 
 未锁定时，左键点击不执行功能，长按0.2秒后可拖动；锁定后，左键点击执行按钮或切换功能，不能拖动。右键菜单提供锁定／解除锁定、关闭快捷球、宽高输入与应用大小，宽高分别限制为16–256像素。触摸长按支持拖动，锁定后轻触执行。
 
-关闭快捷球只隐藏它并关闭对应「快捷球」开关，不会关闭功能。重新开启保留当前会话的位置、锁定状态和大小。功能开关关闭为白底、开启为蓝底，普通UI点击、快捷键、SetValue及配置恢复都会同步；无持续状态的按钮执行时短暂变蓝0.25秒。禁用源控件或打开模态弹窗时，小球不能执行功能。控件或窗口销毁时自动清理小球、菜单和监听。快捷球外观、位置和锁定状态不纳入配置快照。
+带AddKeyPicker的开关和AddKeybind独立快捷键会自动配对快捷球，默认隐藏；已显式创建的球会复用，FloatingBall=false可关闭自动配对。Toggle模式共享同一个开关状态；Hold模式的锁定球按住生效、松开释放，失焦、关闭球或解除锁定也会释放。
 
-示例的「专注模式」和「显示通知」提供「快捷球」开关。本功能需要AURA 1.4.6+。
+关闭快捷球只隐藏它并关闭对应「快捷球」开关，不会关闭Toggle功能；正在按住的Hold功能会释放。重新开启保留当前会话的位置、锁定状态和大小。功能开关关闭为白底、开启为蓝底，普通UI点击、快捷键、SetValue及配置恢复都会同步；无持续状态的按钮执行时短暂变蓝0.25秒。禁用源控件或打开模态弹窗时，小球不能执行功能。控件或窗口销毁时自动清理小球、菜单和监听。快捷球的显示、位置、尺寸和锁定状态已纳入配置快照。
+
+示例的「专注模式」和「显示通知」提供「快捷球」开关。自动配对和文件配置需要AURA 1.4.7+。
 
 ## 验证与边界
 
