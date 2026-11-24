@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.7" }
+local Library = { Version = "1.4.8" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -204,7 +204,8 @@ local Window = {
     _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
     OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {}, _floatingBalls = {},
-    _configTitle = tostring(options.Title or "aura"), ConfigsEnabled = options.Configs ~= false,
+    _configTitle = tostring(options.Title or "aura"), _configFolderName = tostring(options.ConfigFolder or options.Title or "aura"),
+    ConfigsEnabled = options.Configs ~= false,
     FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
@@ -2459,10 +2460,13 @@ function Window:ResetValues(silent)
 end
 
 -- File profiles are scoped to the title supplied when the window was created.
-local function configSegment(value)
+local function configSegment(value, ascii)
     local text = tostring(value)
     text = text:gsub('[\\/:*?"<>|%%\0-\31]', function(char) return string.format("%%%02X", char:byte()) end)
     text = text:gsub('[%. ]+$', function(tail) return (tail:gsub('.', function(char) return string.format("%%%02X", char:byte()) end)) end)
+    if ascii then
+        text = text:gsub("[\128-\255]", function(char) return string.format("%%%02X", char:byte()) end)
+    end
     local stem = text:match("^([^%.]+)") or text
     local upper = stem:upper()
     if text == "" then text = "%00"
@@ -2478,7 +2482,7 @@ local function configName(value)
     return name
 end
 function Window:GetConfigFolder()
-    return "robluauui/" .. configSegment(self._configTitle)
+    return "robluauui/" .. configSegment(self._configFolderName, true)
 end
 function Window:_ensureConfigFolder()
     assert(not self._destroyed, "窗口已关闭")
@@ -2499,6 +2503,7 @@ function Window:ListConfigs()
         for _, path in ipairs(files) do
             if type(path) == "string" then
                 local leaf = path:gsub("\\", "/"):match("([^/]+)%.json$")
+                if leaf then leaf = leaf:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end) end
                 local valid, name = pcall(configName, leaf)
                 if valid and not seen[name] then seen[name] = true; table.insert(names, name) end
             end
@@ -2513,7 +2518,7 @@ function Window:SaveConfig(name)
         name = configName(name)
         local folder = self:_ensureConfigFolder()
         assert(type(writefile) == "function", "执行器缺少 writefile")
-        local path = folder .. "/" .. name .. ".json"
+        local path = folder .. "/" .. configSegment(name, true) .. ".json"
         local data = { Format = "AURA.Config", Version = 1, Title = self._configTitle, Config = self:ExportConfig() }
         local json = game:GetService("HttpService"):JSONEncode(data)
         writefile(path, json)
@@ -2524,7 +2529,7 @@ end
 function Window:LoadConfig(name, silent)
     local ok, result = pcall(function()
         name = configName(name)
-        local path = self:_ensureConfigFolder() .. "/" .. name .. ".json"
+        local path = self:_ensureConfigFolder() .. "/" .. configSegment(name, true) .. ".json"
         assert(type(readfile) == "function" and type(isfile) == "function", "执行器缺少配置读取接口")
         assert(isfile(path), "找不到该配置")
         local data = game:GetService("HttpService"):JSONDecode(readfile(path))
@@ -2537,7 +2542,7 @@ end
 function Window:DeleteConfig(name)
     local ok, result = pcall(function()
         name = configName(name)
-        local path = self:_ensureConfigFolder() .. "/" .. name .. ".json"
+        local path = self:_ensureConfigFolder() .. "/" .. configSegment(name, true) .. ".json"
         assert(type(delfile) == "function" and type(isfile) == "function", "执行器不支持删除配置")
         assert(isfile(path), "找不到该配置")
         delfile(path)

@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.7**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.8**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -29,7 +29,7 @@ window:Notify({ Title = "Ready", Content = "Everything is set up.", Type = "succ
 
 To pin a version, replace `main` with a commit SHA or tag. If you fork the repository or move `ui.lua`, update the owner, repository, branch, or file path in the URL. A GitHub `blob` page returns HTML; use its Raw URL instead.
 
-See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery, configuration snapshots and floating shortcuts. See [CONTROLS.md](CONTROLS.md) for controls, floating shortcut balls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.7+.
+See [ui.example.lua](ui.example.lua) for a four-tab example including a component gallery, configuration snapshots and floating shortcuts. See [CONTROLS.md](CONTROLS.md) for controls, floating shortcut balls, dynamic updates, dialogs and configuration APIs. The example checks local executor files (`现代化luauui/ui.lua`, then `ui.lua`) before using the remote URL and requires AURA 1.4.8+.
 
 ## Library
 
@@ -38,7 +38,7 @@ See [ui.example.lua](ui.example.lua) for a four-tab example including a componen
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.7"` |
+| `UI.Version` | `"1.4.8"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -60,6 +60,7 @@ Loading another copy of the library preserves existing windows. Different window
 | `Scale` | `1` | Scale multiplier, from 0.5 to 1.5; still limited by viewport size |
 | `NotificationLimit` | `3` | Visible notification limit, from 1 to 3; reduced on short screens |
 | `NotificationDuration` | `4` | Default duration in seconds; 0 keeps a notification open until dismissed |
+| `ConfigFolder` | Initial window title | Optional folder alias, e.g. xgs for a Chinese window title; title ownership is still checked |
 | `Configs` | `true` | Automatically adds a config section to Settings tabs; false opts out |
 | `FeatureListEnabled` | `false` | Show enabled toggle features as a separate overlay |
 | `OnDestroy` | `nil` | Cleanup callback, invoked once after the window is destroyed |
@@ -278,7 +279,7 @@ Overflow remains manually scrollable. Automatic scrolling moves vertically at co
 
 ## File profiles and linked floating shortcuts
 
-Settings tabs (ID settings, title Settings or a Chinese title containing 设置) automatically receive one config section. Use window:CreateSettingsTab() when building a new script, or window:AddConfigSection(tab) with any other page. The manager creates robluauui and a child folder named for the initial UI title, then provides named save/overwrite, load, refresh, delete and reset actions. Profiles remain local and load only when requested. Changing the display title later keeps the original folder. Invalid path characters in titles are reversibly escaped; valid Chinese titles remain readable.
+Settings tabs (ID settings, title Settings or a Chinese title containing 设置) automatically receive one config section. Use window:CreateSettingsTab() when building a new script, or window:AddConfigSection(tab) with any other page. The manager creates robluauui and a child folder named for the initial UI title, then provides named save/overwrite, load, refresh, delete and reset actions. Profiles remain local and load only when requested. Changing the display title later keeps the original folder. ConfigFolder can supply an ASCII folder alias without changing the visible title. Unicode and invalid path bytes are reversibly percent-encoded before calling executor file APIs; Chinese profile names are decoded for display. XGS uses robluauui/xgs and EMDEN uses robluauui/emden.
 
 Snapshots include controls, key names/modes, and floating ball visibility, lock, size and normalized position. Controls need stable IDs to persist. Saved files also identify their UI title, so an imported file belonging to another title is rejected. Executor isfolder/makefolder/isfile/readfile/writefile/listfiles APIs are required; delete additionally uses delfile.
 

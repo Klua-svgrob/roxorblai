@@ -11,7 +11,7 @@ local chunk, compileError = loadstring(source, "AURA.UI")
 assert(chunk, compileError)
 local UI = chunk()
 local patchVersion = type(UI) == "table" and type(UI.Version) == "string" and tonumber(UI.Version:match("^1%.4%.(%d+)$"))
-assert(patchVersion and patchVersion >= 7, "此示例需要 AURA 1.4.7+，请更新本地或远程 ui.lua")
+assert(patchVersion and patchVersion >= 8, "此示例需要 AURA 1.4.8+，请更新本地或远程 ui.lua")
 
 local window = UI:CreateWindow({
     Id = "aura-demo", Title = "aura", Subtitle = "为专注留一点空间",
