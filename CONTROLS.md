@@ -1,4 +1,4 @@
-# AURA 1.4.8 控件与配置
+# AURA 1.4.9 控件与配置
 
 本次保持 gethui 挂载、右Alt显隐和现有1.4.x调用方式。旧AddButton/AddLabel继续返回原生实例；其他控件返回可操作的Lua表。示例见[ui.example.lua](ui.example.lua)。
 
@@ -105,6 +105,10 @@ print(window:GetConfigFolder()) -- robluauui/<创建窗口时的Title>
 ImportConfig核对版本、类型、颜色、键名、模式和当前可选值，返回按控件Id列出的错误表，未知Id忽略。数值继续按控件范围/精度处理。Hold快捷键不会恢复为一直按住。ResetValues恢复创建时记录的默认值；动态选项如果已改变，先恢复列表数据，旧默认值才可能重新有效。
 
 默认会调用控件Callback；silent=true仅改UI状态，调用方需同步自身功能状态。ExportConfig/ImportConfig仍为内存接口；SaveConfig/LoadConfig访问执行器工作区文件，不上传、不执行配置内容，也不自动加载功能状态。
+
+1.4.9起，SetValues、ImportConfig和ResetValues先静默设置全部值（包括空选择），再按固定顺序执行回调：关闭功能、应用参数、开启功能。回调读取其他控件时可获得同一份配置的完整值。XGS适配层会在回调前同步Options/Toggles。silent=true继续跳过功能回调。
+
+参数格式错误、失效的动态选项和同步回调异常均按控件Id返回；完整错误表也保存在window.LastConfigErrors。LoadConfig遇到部分失败返回false和错误表，已恢复的有效选项仍然保留；设置页显示未恢复的Id与原因，不再把部分失败显示为成功。回调可能已产生的外部效果不会自动回滚。异步任务自行产生的错误不属于同步回调捕获范围。旧版Version=1配置文件无需转换；更新XGS时请同时将ui.lua更新至1.4.9+。
 
 设置页自动增加“配置”分类：配置名称、已有配置列表、保存／覆盖、加载、刷新、删除、恢复默认。识别Id为settings、标题为Settings或中文包含“设置”的页面；其他页面可调用window:AddConfigSection(tab)。新脚本可使用window:CreateSettingsTab()创建，CreateWindow({Configs=false})可关闭自动添加。
 

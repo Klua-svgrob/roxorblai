@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.8**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.9**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -38,7 +38,7 @@ See [ui.example.lua](ui.example.lua) for a four-tab example including a componen
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.8"` |
+| `UI.Version` | `"1.4.9"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -74,7 +74,7 @@ The library creates and manages its own `BlurEffect`. Destroying a window remove
 | `CreateTab({ Id, Title, Description, Icon })` | Creates a tab; supported icons: `grid`, `settings`, `info` |
 | `CreateSettingsTab(options)` / `AddConfigSection(tab)` | Adds title-scoped save/load/list/delete/reset controls; existing Settings tabs receive these automatically |
 | `GetConfigFolder()` | Returns `robluauui/<initial window title>` within executor workspace |
-| `SaveConfig(name)` / `LoadConfig(name, silent)` / `DeleteConfig(name)` | Returns success and the path, import errors, or failure message |
+| `SaveConfig(name)` / `LoadConfig(name, silent)` / `DeleteConfig(name)` | Returns success and the path, import errors, or failure message; LoadConfig returns false if any known option fails |
 | `ListConfigs()` | Returns available profile names, or nil and a failure message |
 | `SelectTab(tabOrId)` | Selects a tab by object or ID |
 | `GetTab(id)` / `GetControl(id)` | Looks up a registered tab or control |
@@ -92,6 +92,8 @@ The library creates and manages its own `BlurEffect`. Destroying a window remove
 | `Destroy()` | Cleans up the UI, blur, listeners, mouse ownership, notifications, tweens, tasks, and registry entry |
 
 For compatibility, the most recently created window is also stored in `getgenv().WhiteGlassUI`. For access across files, use `UI:GetWindow("my-script")` or keep the window reference.
+
+Configuration loading and resetting stage all control values before running callbacks. Replay uses a fixed order: feature shutdown, parameters, then feature activation. Callback exceptions are returned by control ID in `ImportConfig` and `LastConfigErrors`; file loading shows the failing IDs instead of reporting success. The profile format remains version 1, so existing profiles remain readable. XGS requires 1.4.9+ to synchronize its legacy parameter tables before replay.
 
 ### Mouse unlocking
 

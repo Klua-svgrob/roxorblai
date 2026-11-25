@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.8" }
+local Library = { Version = "1.4.9" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -280,9 +280,15 @@ function Window:_callback(callback, ...)
     if type(callback) ~= "function" or self._destroyed then return end
     local success, message = xpcall(callback, debug.traceback, ...)
     if not success then
-        warn("[AURA callback] " .. tostring(message))
-        self:Notify("操作未完成", "请查看控制台中的详细信息。")
+        local context = self._configContext
+        if context and context.Thread == coroutine.running() then
+            context.Errors[context.Id or "__config"] = tostring(message)
+        else
+            warn("[AURA callback] " .. tostring(message))
+            self:Notify("操作未完成", "请查看控制台中的详细信息。")
+        end
     end
+    return success, message
 end
 
 local screen = create("ScreenGui", {
@@ -2318,17 +2324,60 @@ function Window:GetValues()
     return values
 end
 
-function Window:SetValues(values, silent)
-    assert(type(values) == "table", "SetValues expects a table")
-    local failed = {}
-    for id, value in pairs(values) do
-        local control = self.Controls[tostring(id)]
-        if control and typeof(control) ~= "Instance" and type(control.SetValue) == "function" and not control._excludeConfig then
-            local ok, message = pcall(control.SetValue, control, value, silent == true)
-            if not ok then failed[tostring(id)] = tostring(message) end
+function Window:_applyConfigValues(values, nils, silent)
+    if self._destroyed then return { __config = "窗口已关闭" } end
+    if self._configContext then return { __config = "正在应用配置，请稍后重试" } end
+    local failed, ordered = {}, {}
+    local function append(id, value)
+        id = tostring(id)
+        local control = self.Controls[id]
+        if control and typeof(control) ~= "Instance" and type(control.SetValue) == "function"
+            and not control._excludeConfig and not control._destroyed then
+            local priority = type(value) ~= "boolean" and 2 or value and 3 or 1
+            ordered[#ordered + 1] = { Id = id, Control = control, Value = value, Priority = priority }
         end
     end
+    for id, value in pairs(values) do append(id, value) end
+    for id in pairs(nils or {}) do append(id, nil) end
+    table.sort(ordered, function(a, b)
+        return a.Priority < b.Priority or a.Priority == b.Priority and a.Id < b.Id
+    end)
+    local context = { Thread = coroutine.running(), Errors = failed }
+    self._configContext = context
+    local ok, message = xpcall(function()
+        -- Publish every value first. Feature callbacks must never see a half-loaded profile.
+        for _, entry in ipairs(ordered) do
+            local setOK, detail = pcall(entry.Control.SetValue, entry.Control, entry.Value, true)
+            if not setOK then failed[entry.Id] = tostring(detail) end
+        end
+        if self._syncConfigState then self:_syncConfigState() end
+        if silent ~= true then
+            for _, entry in ipairs(ordered) do
+                local control = entry.Control
+                if self._destroyed then break end
+                if not failed[entry.Id] and self.Controls[entry.Id] == control and not control._destroyed then
+                    context.Id = entry.Id
+                    local replayOK, detail = pcall(function()
+                        local value = entry.Value
+                        if type(control.GetValue) == "function" then value = control:GetValue() end
+                        control:SetValue(value, false)
+                    end)
+                    if not replayOK then failed[entry.Id] = tostring(detail) end
+                    context.Id = nil
+                end
+            end
+        end
+        if self._syncConfigState then self:_syncConfigState() end
+    end, debug.traceback)
+    self._configContext = nil
+    if not ok then failed.__config = tostring(message) end
+    self.LastConfigErrors = failed
     return failed
+end
+
+function Window:SetValues(values, silent)
+    assert(type(values) == "table", "SetValues expects a table")
+    return self:_applyConfigValues(values, nil, silent)
 end
 
 function Window:ExportConfig()
@@ -2357,6 +2406,7 @@ end
 
 function Window:ImportConfig(config, silent)
     assert(type(config) == "table" and config.Version == 1 and type(config.Values) == "table", "Unsupported AURA config")
+    if self._configContext then return { __config = "正在应用配置，请稍后重试" } end
     local values, modes, nils = {}, {}, {}
     local failed = {}
     if config.Keybinds ~= nil and type(config.Keybinds) ~= "table" then failed.Keybinds = "Invalid keybinds" end
@@ -2373,9 +2423,10 @@ function Window:ImportConfig(config, silent)
     for id, entry in pairs(config.Values) do
         local control = self.Controls[tostring(id)]
         if control and typeof(control) ~= "Instance" and type(control.GetValue) == "function" and type(control.SetValue) == "function"
-            and not control._excludeConfig and type(entry) == "table" then
+            and not control._excludeConfig and not control._destroyed then
             local current = control:GetValue()
-            if entry.Type == "Color3" and typeof(current) == "Color3" then
+            if type(entry) ~= "table" then failed[tostring(id)] = "Invalid config entry"
+            elseif entry.Type == "Color3" and typeof(current) == "Color3" then
                 local v = entry.Value
                 if type(v) == "table" and type(v[1]) == "number" and type(v[2]) == "number" and type(v[3]) == "number"
                     and finiteNumber(v[1]) and finiteNumber(v[2]) and finiteNumber(v[3]) then
@@ -2388,7 +2439,8 @@ function Window:ImportConfig(config, silent)
             elseif entry.Type == "Nil" and control._allowNil then
                 nils[id] = true
             elseif entry.Type == "Value" and not control.GetMode
-                and (type(current) == type(entry.Value) and typeof(current) == typeof(entry.Value) or current == nil and control._allowNil)
+                and (control._isValidValue or type(current) == type(entry.Value) and typeof(current) == typeof(entry.Value)
+                    or current == nil and control._allowNil)
                 and (type(entry.Value) ~= "number" or finiteNumber(entry.Value) ~= nil) then
                 if control._isValidValue and not control:_isValidValue(entry.Value) then failed[tostring(id)] = "Invalid choice"
                 else values[id] = entry.Value end
@@ -2401,11 +2453,7 @@ function Window:ImportConfig(config, silent)
         local control = self.Controls[tostring(id)]
         if control.KeyPicker and control.KeyPicker:GetMode() == "Hold" then values[id] = false end
     end
-    for id, message in pairs(self:SetValues(values, silent)) do failed[id] = message end
-    for id in pairs(nils) do
-        local ok, message = pcall(self.Controls[tostring(id)].SetValue, self.Controls[tostring(id)], nil, silent == true)
-        if not ok then failed[id] = tostring(message) end
-    end
+    for id, message in pairs(self:_applyConfigValues(values, nils, silent)) do failed[id] = message end
     if config.FloatingBalls ~= nil and type(config.FloatingBalls) ~= "table" then failed.FloatingBalls = "Invalid floating balls" end
     for id, entry in pairs(type(config.FloatingBalls) == "table" and config.FloatingBalls or {}) do
         local ball = self:GetFloatingBall(tostring(id))
@@ -2419,10 +2467,12 @@ function Window:ImportConfig(config, silent)
             else failed[tostring(id) .. ":ball"] = "Invalid floating ball" end
         end
     end
+    self.LastConfigErrors = failed
     return failed
 end
 
 function Window:ResetValues(silent)
+    if self._configContext then return { __config = "正在应用配置，请稍后重试" } end
     for _, picker in ipairs(self._keyPickers) do
         if picker._initialBinding then
             picker:SetMode(picker._initialBinding.Mode, true); picker:SetValue(picker._initialBinding.Key, true)
@@ -2441,14 +2491,14 @@ function Window:ResetValues(silent)
         local control = self.Controls[id]
         if control and control.KeyPicker and control.KeyPicker:GetMode() == "Hold" then values[id] = false end
     end
-    local failed = self:SetValues(values, silent)
+    local nils = {}
     for id in pairs(self._nilDefaults) do
         local control = self.Controls[id]
         if control and not control._excludeConfig then
-            local ok, message = pcall(control.SetValue, control, nil, silent == true)
-            if not ok then failed[id] = tostring(message) end
+            nils[id] = true
         end
     end
+    local failed = self:_applyConfigValues(values, nils, silent)
     for _, ball in pairs(self._floatingBalls) do
         local initial = ball._initialLayout
         if initial then
@@ -2537,7 +2587,7 @@ function Window:LoadConfig(name, silent)
             "配置不属于当前 UI 或文件格式无效")
         return self:ImportConfig(data.Config, silent)
     end)
-    return ok, result
+    return ok and (type(result) ~= "table" or next(result) == nil), result
 end
 function Window:DeleteConfig(name)
     local ok, result = pcall(function()
@@ -2574,9 +2624,20 @@ function Window:AddConfigSection(tab)
     end
     local function result(ok, detail, action)
         local content = ok and (action .. "完成") or tostring(detail)
-        if ok and type(detail) == "table" and next(detail) then content = "部分选项未能恢复，请检查配置版本。" end
+        local partial = type(detail) == "table" and next(detail) ~= nil
+        if partial then
+            local ids, messages = {}, {}
+            for id in pairs(detail) do ids[#ids + 1] = tostring(id) end
+            table.sort(ids)
+            for index, id in ipairs(ids) do
+                if index > 4 then break end
+                local message = tostring(detail[id]):match("^[^\r\n]+") or tostring(detail[id])
+                messages[#messages + 1] = id .. "：" .. message:sub(1, 160)
+            end
+            content = "未能恢复 " .. #ids .. " 个选项：\n" .. table.concat(messages, "\n")
+        end
         status.Text = content
-        ui:Notify({ Title = "配置", Content = content, Type = ok and "success" or "error" })
+        ui:Notify({ Title = "配置", Content = content, Type = partial and "warning" or ok and "success" or "error" })
     end
     section:AddButton({ Id = "__aura_config_save", Title = "保存配置", Text = "保存／覆盖", Callback = function()
         local ok, detail = ui:SaveConfig(name:GetValue()); if ok then refresh() end; result(ok, detail, "保存")
