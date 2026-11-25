@@ -1,7 +1,7 @@
 local Environment = type(getgenv) == "function" and getgenv() or _G
 local Registry = Environment.__AuraWindows or {}
 Environment.__AuraWindows = Registry
-local Library = { Version = "1.4.9" }
+local Library = { Version = "1.4.10" }
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -11,6 +11,34 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
 local GuiService = game:GetService("GuiService")
+
+-- Create callback threads from the executor context captured when the library loads.
+-- Raising an event thread's identity alone does not give it executor capabilities.
+local UIThreads = setmetatable({}, { __mode = "k" })
+local UIThreadFactory = coroutine.create(function()
+    while true do
+        local job = coroutine.yield()
+        local pending = job
+        local thread = coroutine.create(function()
+            local current = coroutine.running()
+            UIThreads[current] = true
+            local identity
+            if type(getthreadidentity) == "function" then
+                local ok, value = pcall(getthreadidentity)
+                if ok then identity = value end
+            end
+            if type(setthreadidentity) == "function" then
+                pcall(setthreadidentity, type(identity) == "number" and math.max(identity, 7) or 7)
+            end
+            local result = table.pack(xpcall(pending.Callback, debug.traceback, table.unpack(pending.Arguments, 1, pending.Arguments.n)))
+            if identity ~= nil and type(setthreadidentity) == "function" then pcall(setthreadidentity, identity) end
+            UIThreads[current] = nil
+            pending.Complete(result)
+        end)
+        coroutine.yield(thread)
+    end
+end)
+assert(coroutine.resume(UIThreadFactory))
 
 local Mouse = Environment.__AuraMouse
 local previousMouse
@@ -201,7 +229,7 @@ local Window = {
     NotificationLimit = math.floor(number(options.NotificationLimit, 3, 1, 3)),
     NotificationDuration = number(options.NotificationDuration, 4, 0, 3600),
     _notifications = {}, _notificationQueue = {}, _notificationMap = {}, _notificationCounter = 0,
-    _destroyed = false, _connections = {}, _tasks = {}, _tweens = {}, _channels = {},
+    _destroyed = false, _connections = {}, _tasks = {}, _uiJobs = {}, _uiWrapped = setmetatable({}, { __mode = "k" }), _tweens = {}, _channels = {},
     _accentBindings = {}, _normalizedCenter = Vector2.new(0.5, 0.5), _scale = 1,
     OnDestroy = options.OnDestroy, Features = {}, _keyPickers = {}, _floatingBalls = {},
     _configTitle = tostring(options.Title or "aura"), _configFolderName = tostring(options.ConfigFolder or options.Title or "aura"),
@@ -209,12 +237,68 @@ local Window = {
     FeatureList = { Enabled = options.FeatureListEnabled == true, Position = "TopRight", Scrolling = false, Speed = 24, MaxHeight = 280 },
 }
 
+function Window:_uiCall(callback, ...)
+    if UIThreads[coroutine.running()] then return callback(...) end
+    local caller = coroutine.running()
+    local job = { Callback = callback, Arguments = table.pack(...) }
+    local thread
+    job.Complete = function(result)
+        if job.Result then return end
+        job.Result = result
+        self._tasks[thread], self._uiJobs[thread] = nil, nil
+        if job.Waiting then
+            if type(task.spawn) == "function" then task.spawn(caller, result)
+            else
+                local ok, message = coroutine.resume(caller, result)
+                if not ok then warn("[AURA continuation] " .. tostring(message)) end
+            end
+        end
+    end
+    local created, value = coroutine.resume(UIThreadFactory, job)
+    assert(created and type(value) == "thread", tostring(value))
+    thread = value
+    -- Park the factory outside this job's scope before running callbacks or yielding.
+    -- This also releases its references to the previous window and callback.
+    local ready, detail = coroutine.resume(UIThreadFactory)
+    assert(ready, tostring(detail))
+    self._tasks[thread], self._uiJobs[thread] = true, job
+    local resumed, message = coroutine.resume(thread)
+    if not resumed then job.Complete(table.pack(false, message)) end
+    local result = job.Result
+    if not result then
+        job.Waiting = true
+        result = coroutine.yield()
+    end
+    if not result[1] then
+        if self._destroyed then return end
+        error(result[2], 0)
+    end
+    return table.unpack(result, 2, result.n)
+end
+
+function Window:_protectMethods(target)
+    if typeof(target) == "Instance" then return target end
+    for name, method in pairs(target) do
+        if type(name) == "string" and name:sub(1, 1) ~= "_" and name ~= "OnDestroy"
+            and type(method) == "function" and not self._uiWrapped[method] then
+            local wrapped = function(object, ...) return self:_uiCall(method, object, ...) end
+            self._uiWrapped[wrapped] = true
+            target[name] = wrapped
+        end
+    end
+    return target
+end
+
 function Window:_listen(signal, callback)
     for connection in pairs(self._connections) do
         if not connection.Connected then self._connections[connection] = nil end
     end
     local connection = signal:Connect(function(...)
-        if not self._destroyed then callback(...) end
+        if not self._destroyed then
+            self:_uiCall(function(...)
+                if not self._destroyed then return callback(...) end
+            end, ...)
+        end
     end)
     self._connections[connection] = true
     return connection
@@ -224,7 +308,7 @@ function Window:_later(seconds, callback)
     local thread
     thread = task.delay(seconds, function()
         self._tasks[thread] = nil
-        if not self._destroyed then callback() end
+        if not self._destroyed then self:_uiCall(callback) end
     end)
     self._tasks[thread] = true
     return thread
@@ -1018,7 +1102,7 @@ function Window:_addKeyPicker(toggle, row, options)
         self.Controls[tostring(options.Id)] = picker
         self._defaults[tostring(options.Id)] = { Key = initial, Mode = mode }
     end
-    return picker
+    return self:_protectMethods(picker)
 end
 
 function Window:SetTitle(title)
@@ -1288,7 +1372,7 @@ function Section:_register(options, control)
         if options.Visible == false then control:SetVisible(false) end
         if control.Disabled then control:SetEnabled(false) end
     end
-    return control
+    return self.Window:_protectMethods(control)
 end
 
 function Section:_row(options, height)
@@ -1350,7 +1434,7 @@ function Section:AddToggle(options)
         return ui:_attachFloatingBall(self, row, options.Title or "选项", ballOptions, true)
     end
     if options.FloatingBall then control:AddFloatingBall(type(options.FloatingBall) == "table" and options.FloatingBall or {}) end
-    return control
+    return ui:_protectMethods(control)
 end
 
 function Section:AddLabel(text)
@@ -1944,7 +2028,7 @@ function Window:_attachFloatingBall(source, row, title, options, isToggle)
     handle:SetSize(options.Width or 25, options.Height or 25)
     handle:SetEnabled(options.Enabled == true)
     handle._initialLayout = { Enabled = handle.Enabled, Locked = handle.Locked, Width = handle.Width, Height = handle.Height }
-    return handle
+    return ui:_protectMethods(handle)
 end
 
 function Section:AddButton(options)
@@ -2754,9 +2838,14 @@ function Window:Destroy(skipGui)
     for connection in pairs(self._connections) do connection:Disconnect() end
     self._connections = {}
     for thread in pairs(self._tasks) do
-        if thread ~= coroutine.running() then pcall(task.cancel, thread) end
+        if thread ~= coroutine.running() then
+            local job = self._uiJobs[thread]
+            if job then job.Complete(table.pack(false, "AURA window closed")) end
+            pcall(task.cancel, thread)
+        end
     end
     self._tasks = {}
+    self._configContext = nil
     for tween in pairs(self._tweens) do tween:Cancel() end
     self._tweens, self._channels = {}, {}
     for _, notice in ipairs(self._notifications) do notice.Status = "closed" end
@@ -2855,6 +2944,10 @@ local function watchCamera()
 end
 Window:_listen(Workspace:GetPropertyChangedSignal("CurrentCamera"), watchCamera)
 
+Window:_protectMethods(Notification)
+Window:_protectMethods(Tab)
+Window:_protectMethods(Section)
+Window:_protectMethods(Window)
 Registry[id] = Window
 Environment.WhiteGlassUI = Window
 watchCamera()

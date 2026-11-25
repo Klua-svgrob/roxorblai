@@ -1,4 +1,4 @@
-# AURA 1.4.9 控件与配置
+# AURA 1.4.10 控件与配置
 
 本次保持 gethui 挂载、右Alt显隐和现有1.4.x调用方式。旧AddButton/AddLabel继续返回原生实例；其他控件返回可操作的Lua表。示例见[ui.example.lua](ui.example.lua)。
 
@@ -109,6 +109,8 @@ ImportConfig核对版本、类型、颜色、键名、模式和当前可选值�
 1.4.9起，SetValues、ImportConfig和ResetValues先静默设置全部值（包括空选择），再按固定顺序执行回调：关闭功能、应用参数、开启功能。回调读取其他控件时可获得同一份配置的完整值。XGS适配层会在回调前同步Options/Toggles。silent=true继续跳过功能回调。
 
 参数格式错误、失效的动态选项和同步回调异常均按控件Id返回；完整错误表也保存在window.LastConfigErrors。LoadConfig遇到部分失败返回false和错误表，已恢复的有效选项仍然保留；设置页显示未恢复的Id与原因，不再把部分失败显示为成功。回调可能已产生的外部效果不会自动回滚。异步任务自行产生的错误不属于同步回调捕获范围。旧版Version=1配置文件无需转换；更新XGS时请同时将ui.lua更新至1.4.9+。
+
+1.4.10修复原生点击线程缺少Plugin能力时，配置结果标签和通知访问gethui实例报错的问题。界面事件、延迟回调及公开UI方法使用从执行器环境创建的独立回调线程，并按需设置其线程身份；原调用线程的身份不变。耗时回调可独立等待，销毁窗口会取消待处理任务并释放等待的调用线程。EMDEN/XGS需同时更新至要求UI 1.4.10+的版本。
 
 设置页自动增加“配置”分类：配置名称、已有配置列表、保存／覆盖、加载、刷新、删除、恢复默认。识别Id为settings、标题为Settings或中文包含“设置”的页面；其他页面可调用window:AddConfigSection(tab)。新脚本可使用window:CreateSettingsTab()创建，CreateWindow({Configs=false})可关闭自动添加。
 

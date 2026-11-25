@@ -1,6 +1,6 @@
 # AURA — Modern Luau UI
 
-A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.9**.
+A native white glass UI library for Roblox Luau. Includes input and selection controls, searchable lists, progress feedback, collapsible sections, modal dialogs, title-scoped file profiles, configuration snapshots, linked key bindings, independent floating shortcut balls, notifications, responsive scaling, and automatic mouse unlocking. Version **1.4.10**.
 
 The interface mounts under `gethui()`. It uses native Roblox UI objects and gradients, with no external UI dependencies. The top-left icon automatically displays the local player's Roblox avatar headshot through a built-in thumbnail URI, preserving the rounded shape and title layout. Studio players without a positive user ID retain the original icon. Loading the library returns an API; it does not create a demo window.
 
@@ -38,7 +38,7 @@ See [ui.example.lua](ui.example.lua) for a four-tab example including a componen
 | `UI:CreateWindow(options)` | Creates a window; cleans up an existing window with the same `Id` first |
 | `UI:GetWindow(id)` | Looks up a window in the shared executor registry; defaults to `"default"` |
 | `UI:Destroy()` | Destroys every window created by this library instance |
-| `UI.Version` | `"1.4.9"` |
+| `UI.Version` | `"1.4.10"` |
 
 Loading another copy of the library preserves existing windows. Different window IDs can coexist. Give windows different toggle keys if you want to control them independently.
 
@@ -93,7 +93,9 @@ The library creates and manages its own `BlurEffect`. Destroying a window remove
 
 For compatibility, the most recently created window is also stored in `getgenv().WhiteGlassUI`. For access across files, use `UI:GetWindow("my-script")` or keep the window reference.
 
-Configuration loading and resetting stage all control values before running callbacks. Replay uses a fixed order: feature shutdown, parameters, then feature activation. Callback exceptions are returned by control ID in `ImportConfig` and `LastConfigErrors`; file loading shows the failing IDs instead of reporting success. The profile format remains version 1, so existing profiles remain readable. XGS requires 1.4.9+ to synchronize its legacy parameter tables before replay.
+Configuration loading and resetting stage all control values before running callbacks. Replay uses a fixed order: feature shutdown, parameters, then feature activation. Callback exceptions are returned by control ID in `ImportConfig` and `LastConfigErrors`; file loading shows the failing IDs instead of reporting success. The profile format remains version 1, so existing profiles remain readable. XGS synchronizes its legacy parameter tables before replay.
+
+Version 1.4.10 runs UI events, delayed callbacks and public UI methods on callback threads created from the library's executor context. This protects `gethui()` instance access when native input callbacks lack Plugin capability, including configuration status and notification rendering. The caller's identity remains unchanged; yielding callbacks run independently, and destroying the window cancels pending work and releases waiting callers. EMDEN and XGS require 1.4.10+ for this fix.
 
 ### Mouse unlocking
 
